@@ -7,7 +7,26 @@ Created on Sun Oct 12 22:40:05 2014
 
 import sys
 import time
+import base64
 
+try:
+    # py3
+    from urllib.parse import urlencode, quote
+    from urllib.request import urlopen, Request
+    from urllib.error import HTTPError
+except ImportError:
+    # py2
+    from urllib import urlencode, quote
+    from urllib2 import urlopen, Request, HTTPError
+
+#from exceptions import Exception
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.application  import MIMEApplication
+
+from email.encoders import encode_noop
+
+import json
 
 class RequestError(Exception):
     '''
@@ -16,13 +35,12 @@ class RequestError(Exception):
     pass
 
 
-def json2python(json):
+def json2python(data):
     '''
     translates JSON to python
     '''
-    import ujson
     try:
-        return ujson.loads(json)
+        return json.loads(data)
     except:
         pass
     return None
@@ -32,24 +50,18 @@ def python2json(pyd):
     '''
     translates python  to JSON
     '''
-    import ujson
-    return ujson.dumps(pyd)
+    return json.dumps(pyd)
 
 
 class NovaClient(object):
-    '''
-    nova.astrometry.net client
-    '''
-    default_url = 'http://nova.astrometry.net/api/'
+    default_url = 'https://nova.astrometry.net/api/'
 
-    def __init__(self, apiurl=default_url):
+    def __init__(self,
+                 apiurl = default_url):
         self.session = None
         self.apiurl = apiurl
 
     def get_url(self, service):
-        '''
-        constructs URL for a plate-solver service
-        '''
         return self.apiurl + service
 
     def send_request(self, service, args={}, file_args=None):
@@ -57,192 +69,202 @@ class NovaClient(object):
         service: string
         args: dict
         '''
-        from email.mime.base import MIMEBase
-        from email.mime.multipart import MIMEMultipart
-        from email.encoders import encode_noop
-        from urllib2 import urlopen
-        from urllib2 import Request
-        from urllib2 import HTTPError
-        from urllib import urlencode
-        from email.mime.application import MIMEApplication
         if self.session is not None:
-            args.update({'session': self.session})
-        # print 'Python:', (args)
+            args.update({ 'session' : self.session })
+        print('Python:', args)
         json = python2json(args)
-        # print 'Sending json:', json
+        print('Sending json:', json)
         url = self.get_url(service)
-        print 'Sending to URL:', url
+        print('Sending to URL:', url)
+
         # If we're sending a file, format a multipart/form-data
         if file_args is not None:
-            ma1 = MIMEBase('text', 'plain')
-            ma1.add_header('Content-disposition',
-                           'form-data; name="request-json"')
-            ma1.set_payload(json)
-            ma2 = MIMEApplication(file_args[1], 'octet-stream', encode_noop)
-            ma2.add_header('Content-disposition',
-                           'form-data; name="file"; filename="%s"'
-                           % file_args[0])
-            # msg.add_header('Content-Disposition', 'attachment',
-            # filename='bud.gif')
-            # msg.add_header('Content-Disposition', 'attachment',
-            # filename=('iso-8859-1', '', 'FuSballer.ppt'))
-            mpa = MIMEMultipart('form-data', None, [ma1, ma2])
-            # Makie a custom generator to format it the way we need.
-            from cStringIO import StringIO
-            from email.generator import Generator
+            import random
+            boundary_key = ''.join([random.choice('0123456789') for i in range(19)])
+            boundary = '===============%s==' % boundary_key
+            headers = {'Content-Type':
+                       'multipart/form-data; boundary="%s"' % boundary}
+            data_pre = (
+                '--' + boundary + '\n' +
+                'Content-Type: text/plain\r\n' +
+                'MIME-Version: 1.0\r\n' +
+                'Content-disposition: form-data; name="request-json"\r\n' +
+                '\r\n' +
+                json + '\n' +
+                '--' + boundary + '\n' +
+                'Content-Type: application/octet-stream\r\n' +
+                'MIME-Version: 1.0\r\n' +
+                'Content-disposition: form-data; name="file"; filename="%s"' % file_args[0] +
+                '\r\n' + '\r\n')
+            data_post = (
+                '\n' + '--' + boundary + '--\n')
+            data = data_pre.encode() + file_args[1] + data_post.encode()
 
-            class MyGenerator(Generator):
-                '''
-                not sure why we need this, copied from nova's example code
-                '''
-                def __init__(self, fp, root=True):
-                    Generator.__init__(self, fp, mangle_from_=False,
-                                       maxheaderlen=0)
-                    self.root = root
-
-                def _write_headers(self, msg):
-                    # We don't want to write the top-level headers;
-                    # they go into Request(headers) instead.
-                    if self.root:
-                        return
-                    # We need to use \r\n line-terminator, but Generator
-                    # doesn't provide the flexibility to override, so we
-                    # have to copy-n-paste-n-modify.
-                    for hoo, voo in msg.items():
-                        print >> self._fp, ('%s: %s\r\n' % (hoo, voo)),
-                        # A blank line always separates headers from body
-                    print >> self._fp, '\r\n',
-                    # The _write_multipart method calls "clone" for the
-                    # subparts.  We hijack that, setting root=False
-
-                def clone(self, fp):
-                    return MyGenerator(fp, root=False)
-            fpo = StringIO()
-            gen = MyGenerator(fpo)
-            gen.flatten(mpa)
-            data = fpo.getvalue()
-            headers = {'Content-type': mpa.get('Content-type')}
         else:
             # Else send x-www-form-encoded
             data = {'request-json': json}
-            # print 'Sending form data:', data
+            print('Sending form data:', data)
             data = urlencode(data)
-            # print 'Sending data:', data
+            data = data.encode('utf-8')
+            print('Sending data:', data)
             headers = {}
+
         request = Request(url=url, headers=headers, data=data)
+
         try:
-            fle = urlopen(request)
-            txt = fle.read()
-            # DEBUG print 'Got json:', txt
+            f = urlopen(request)
+            print('Got reply HTTP status code:', f.status)
+            txt = f.read()
+            print('Got json:', txt)
             result = json2python(txt)
-            # DEBUG print 'Got result:', result
+            print('Got result:', result)
             stat = result.get('status')
-            # DEBUG print 'Got status:', stat
+            print('Got status:', stat)
             if stat == 'error':
                 errstr = result.get('errormessage', '(none)')
                 raise RequestError('server error message: ' + errstr)
             return result
-        except HTTPError, err:
-            print 'HTTPError', err
-            txt = err.read()
+        except HTTPError as e:
+            print('HTTPError', e)
+            txt = e.read()
             open('err.html', 'wb').write(txt)
-            print 'Wrote error text to err.html'
+            print('Wrote error text to err.html')
 
     def login(self, apikey):
-        '''
-        Logs us into the plate-solver and gets a session key
-        '''
-        import string
-        args = {'apikey': string.strip(apikey)}
+        args = { 'apikey' : apikey }
         result = self.send_request('login', args)
         sess = result.get('session')
-        print 'Got session:', sess
+        print('Got session:', sess)
         if not sess:
             raise RequestError('no session in result')
         self.session = sess
 
     def _get_upload_args(self, **kwargs):
-        '''
-        returns the specified solving options
-        '''
         args = {}
-        lkdt = [('allow_commercial_use', 'd', str),
-                ('allow_modifications', 'd', str),
-                ('publicly_visible', 'y', str),
-                ('scale_units', None, str),
-                ('scale_type', None, str),
-                ('scale_lower', None, float),
-                ('scale_upper', None, float),
-                ('scale_est', None, float),
-                ('scale_err', None, float),
-                ('center_ra', None, float),
-                ('center_dec', None, float),
-                ('radius', None, float),
-                ('downsample_factor', None, int),
-                ('tweak_order', None, int),
-                ('crpix_center', None, bool), ]
-        for key, default, typ in lkdt:
-            # image_width, image_height
+        for key,default,typ in [('allow_commercial_use', 'd', str),
+                                ('allow_modifications', 'd', str),
+                                ('publicly_visible', 'y', str),
+                                ('scale_units', None, str),
+                                ('scale_type', None, str),
+                                ('scale_lower', None, float),
+                                ('scale_upper', None, float),
+                                ('scale_est', None, float),
+                                ('scale_err', None, float),
+                                ('center_ra', None, float),
+                                ('center_dec', None, float),
+                                ('parity',None,int),
+                                ('radius', None, float),
+                                ('downsample_factor', None, int),
+                                ('positional_error', None, float),
+                                ('tweak_order', None, int),
+                                ('crpix_center', None, bool),
+                                ('invert', None, bool),
+                                ('image_width', None, int),
+                                ('image_height', None, int),
+                                ('x', None, list),
+                                ('y', None, list),
+                                ('album', None, str),
+                                ]:
             if key in kwargs:
                 val = kwargs.pop(key)
                 val = typ(val)
                 args.update({key: val})
             elif default is not None:
                 args.update({key: default})
-        # print 'Upload args:', args
+        print('Upload args:', args)
         return args
 
-    def upload(self, fne, **kwargs):
-        '''
-        uploads an image file
-        '''
+    def url_upload(self, url, **kwargs):
+        args = dict(url=url)
+        args.update(self._get_upload_args(**kwargs))
+        result = self.send_request('url_upload', args)
+        return result
+
+    def upload(self, fn=None, **kwargs):
         args = self._get_upload_args(**kwargs)
-        try:
-            fle = open(fne, 'rb')
-            result = self.send_request('upload', args, (fne, fle.read()))
-            return result
-        except IOError:
-            print 'File %s does not exist' % fne
-            raise
+        file_args = None
+        if fn is not None:
+            try:
+                f = open(fn, 'rb')
+                file_args = (fn, f.read())
+            except IOError:
+                print('File %s does not exist' % fn)
+                raise
+        return self.send_request('upload', args, file_args)
+
+    def submission_images(self, subid):
+        result = self.send_request('submission_images', {'subid':subid})
+        return result.get('image_ids')
+
+    def overlay_plot(self, service, outfn, wcsfn, wcsext=0):
+        from astrometry.util import util as anutil
+        wcs = anutil.Tan(wcsfn, wcsext)
+        params = dict(crval1 = wcs.crval[0], crval2 = wcs.crval[1],
+                      crpix1 = wcs.crpix[0], crpix2 = wcs.crpix[1],
+                      cd11 = wcs.cd[0], cd12 = wcs.cd[1],
+                      cd21 = wcs.cd[2], cd22 = wcs.cd[3],
+                      imagew = wcs.imagew, imageh = wcs.imageh)
+        result = self.send_request(service, {'wcs':params})
+        print('Result status:', result['status'])
+        plotdata = result['plot']
+        plotdata = base64.b64decode(plotdata)
+        open(outfn, 'wb').write(plotdata)
+        print('Wrote', outfn)
+
+    def sdss_plot(self, outfn, wcsfn, wcsext=0):
+        return self.overlay_plot('sdss_image_for_wcs', outfn,
+                                 wcsfn, wcsext)
+
+    def galex_plot(self, outfn, wcsfn, wcsext=0):
+        return self.overlay_plot('galex_image_for_wcs', outfn,
+                                 wcsfn, wcsext)
 
     def myjobs(self):
-        '''
-        queries server for our jobs
-        '''
         result = self.send_request('myjobs/')
         return result['jobs']
 
     def job_status(self, job_id, justdict=False):
-        '''
-        queries server to see if a job is finished
-        '''
         result = self.send_request('jobs/%s' % job_id)
         if justdict:
             return result
         stat = result.get('status')
         if stat == 'success':
-            return stat
+            result = self.send_request('jobs/%s/calibration' % job_id)
+            print('Calibration:', result)
+            result = self.send_request('jobs/%s/tags' % job_id)
+            print('Tags:', result)
+            result = self.send_request('jobs/%s/machine_tags' % job_id)
+            print('Machine Tags:', result)
+            result = self.send_request('jobs/%s/objects_in_field' % job_id)
+            print('Objects in field:', result)
+            result = self.send_request('jobs/%s/annotations' % job_id)
+            print('Annotations:', result)
+            result = self.send_request('jobs/%s/info' % job_id)
+            print('Calibration:', result)
+
         return stat
 
+    def annotate_data(self,job_id):
+        """
+        :param job_id: id of job
+        :return: return data for annotations
+        """
+        result = self.send_request('jobs/%s/annotations' % job_id)
+        return result
+
     def sub_status(self, sub_id, justdict=False):
-        '''
-        queries server for submission status
-        '''
         result = self.send_request('submissions/%s' % sub_id)
         if justdict:
             return result
         return result.get('status')
 
     def jobs_by_tag(self, tag, exact):
-        '''
-        not sure what that does
-        '''
-        from urllib import quote
         exact_option = 'exact=yes' if exact else ''
-        result = self.send_request('jobs_by_tag?query=%s&%s'
-                                   % (quote(tag.strip()), exact_option), {}, )
+        result = self.send_request(
+            'jobs_by_tag?query=%s&%s' % (quote(tag.strip()), exact_option),
+            {},
+        )
         return result
-
 
 def stat_bar(self, txt):
     '''
@@ -263,7 +285,7 @@ def limg2wcs(self, filename, wcsfn, hint):
         # Cygwin local or Linux local
         if True:
             # first rough estimate of scale
-            print '___________________________________________________________'
+            print('___________________________________________________________')
             cmd = 'solve-field -b ' + self.local_configfile.get()
             if self.havescale and self.restrict_scale.get()==1:
                 up_lim = self.scale*1.05
@@ -281,14 +303,14 @@ def limg2wcs(self, filename, wcsfn, hint):
             template = ((self.local_shell.get() % cmd))
             # print template
             cmd = (template % filename)
-            print cmd
+            print(cmd)
             os.system(cmd)
             self.update_scale(hint)
-            print '___________________________________________________________'
+            print('___________________________________________________________')
     self.update_solved_labels(hint, 'active')
     stat_bar(self, 'Idle')
-    print 'local solve time ' + str(time.time()-t_start)
-    print '___________________________________________________________'            
+    print('local solve time ' + str(time.time()-t_start))
+    print('___________________________________________________________')            
 
     
 def img2wcs(self, ankey, filename, wcsfn, hint):
@@ -297,7 +319,7 @@ def img2wcs(self, ankey, filename, wcsfn, hint):
     '''
     import optparse
     import time
-    from urllib2 import urlopen
+    from urllib.request import urlopen
     t_start = time.time()
     parser = optparse.OptionParser()
     parser.add_option('--server', dest='server',
@@ -389,13 +411,13 @@ def img2wcs(self, ankey, filename, wcsfn, hint):
         opt.scale_est = ('%.2f' % self.scale)
         opt.scale_err = 5
     # DEBUG print opt
-    print 'with estimated scale', opt.scale_est
+    print('with estimated scale', opt.scale_est)
     args = {}
     args['apiurl'] = opt.server
     clnt = NovaClient(**args)
     try:
         clnt.login(opt.apikey)
-    except RequestError, URLError:
+    except RequestError as URLError:
         stat_bar(self, ("Couldn't log on to nova.astrometry.net " +
                         '- Check the API key'))
         return
@@ -428,14 +450,14 @@ def img2wcs(self, ankey, filename, wcsfn, hint):
             upres = clnt.upload(opt.upload, **kwargs)
         stat = upres['status']
         if stat != 'success':
-            print 'Upload failed: status', stat
-            print upres
+            print('Upload failed: status', stat)
+            print(upres)
             sys.exit(-1)
         opt.sub_id = upres['subid']
     if opt.wait:
         if opt.job_id is None:
             if opt.sub_id is None:
-                print "Can't --wait without a submission id or job id!"
+                print("Can't --wait without a submission id or job id!")
                 sys.exit(-1)
             while True:
                 stat = clnt.sub_status(opt.sub_id, justdict=True)
@@ -446,7 +468,7 @@ def img2wcs(self, ankey, filename, wcsfn, hint):
                         if j is not None:
                             break
                     if j is not None:
-                        print 'Selecting job id', j
+                        print('Selecting job id', j)
                         opt.job_id = j
                         break
                 time.sleep(5)
@@ -467,53 +489,53 @@ def img2wcs(self, ankey, filename, wcsfn, hint):
                 url = opt.server.replace('/api/', '/wcs_file/%i' % opt.job_id)
                 retrieveurls.append((url, opt.wcs))
             for url, fne in retrieveurls:
-                print 'Retrieving file from', url
+                print('Retrieving file from', url)
                 fle = urlopen(url)
                 txt = fle.read()
                 wfl = open(fne, 'wb')
                 wfl.write(txt)
                 wfl.close()
-                print 'Wrote to', fne
+                print('Wrote to', fne)
                 self.update_solved_labels(hint, 'active')
                 stat_bar(self,'Idle')
-                print 'nova solve time ' + str(time.time()-t_start)
-                print '___________________________________________________________'            
+                print('nova solve time ' + str(time.time()-t_start))
+                print('___________________________________________________________')            
         opt.job_id = None
         opt.sub_id = None
     if opt.sub_id:
-        print clnt.sub_status(opt.sub_id)
+        print(clnt.sub_status(opt.sub_id))
     if opt.job_id:
-        print clnt.job_status(opt.job_id)
+        print(clnt.job_status(opt.job_id))
     if opt.jobs_by_tag:
         tag = opt.jobs_by_tag
-        print clnt.jobs_by_tag(tag, None)
+        print(clnt.jobs_by_tag(tag, None))
     if opt.jobs_by_exact_tag:
         tag = opt.jobs_by_exact_tag
-        print clnt.jobs_by_tag(tag, 'yes')
+        print(clnt.jobs_by_tag(tag, 'yes'))
     if opt.myjobs:
         jobs = clnt.myjobs()
-        print jobs
+        print(jobs)
 
-from Tkinter import Frame, Tk, Menu, Label, Entry, PhotoImage
-from Tkinter import Scrollbar, Toplevel, Canvas, Radiobutton
-from Tkinter import StringVar, IntVar, DoubleVar
-from Tkinter import Button, LabelFrame, Checkbutton, Scale
-from Tkinter import HORIZONTAL
+from tkinter import Frame, Tk, Menu, Label, Entry, PhotoImage
+from tkinter import Scrollbar, Toplevel, Canvas, Radiobutton
+from tkinter import StringVar, IntVar, DoubleVar
+from tkinter import Button, LabelFrame, Checkbutton, Scale
+from tkinter import HORIZONTAL
 
 def help_f():
     '''
     Our help window
     '''
-    import tkMessageBox
-    tkMessageBox.showinfo("Help", "Still to come...")
+    import tkinter.messagebox
+    tkinter.messagebox.showinfo("Help", "Still to come...")
 
 
 def about_f():
     '''
     our about window
     '''
-    import tkMessageBox
-    tkMessageBox.showinfo('About',
+    import tkinter.messagebox
+    tkinter.messagebox.showinfo('About',
                           'PhotoPolarAlign v1.0.4 \n' +
                           'Copyright Â© 2014 Themos Tsikas, ' +
                           'Jack Richmond')
@@ -657,38 +679,38 @@ class PhotoPolarAlign(Frame):
         # the API key
         if not self.config.has_section('nova'):
             self.config.add_section('nova')
-        self.config.set('nova', 'apikey', self.apikey.get())
+        self.config.set('nova', 'apikey', str(self.apikey.get()))
         # the image directory
         if not self.config.has_section('file'):
             self.config.add_section('file')
-        self.config.set('file', 'imgdir', self.imgdir)
+        self.config.set('file', 'imgdir', str(self.imgdir))
         # the geometry
         if not self.config.has_section('appearance'):
             self.config.add_section('appearance')
         self.config.set('appearance', 'geometry',
-                        self.myparent.winfo_geometry())
+                        str(self.myparent.winfo_geometry()))
         # the operating options
         if not self.config.has_section('operations'):
             self.config.add_section('operations')
         self.config.set('operations','restrict scale',
-                        self.restrict_scale.get())
+                        str(self.restrict_scale.get()))
         # the local solve options
         if not self.config.has_section('local'):
             self.config.add_section('local')
         self.config.set('local','shell',
-                        self.local_shell.get())
+                        str(self.local_shell.get()))
         self.config.set('local','downscale',
-                        self.local_downscale.get())
+                        str(self.local_downscale.get()))
         self.config.set('local','configfile',
-                        self.local_configfile.get())
+                        str(self.local_configfile.get()))
         self.config.set('local','scale_units',
-                        self.local_scale_units.get())
+                        str(self.local_scale_units.get()))
         self.config.set('local','scale_low',
-                        self.local_scale_low.get())
+                        str(self.local_scale_low.get()))
         self.config.set('local','scale_hi',
-                        self.local_scale_hi.get())
+                        str(self.local_scale_hi.get()))
         self.config.set('local','xtra',
-                        self.local_xtra.get())
+                        str(self.local_xtra.get()))
         #
         with open(self.cfgfn, 'w') as cfgfile:
             self.config.write(cfgfile)
@@ -813,7 +835,7 @@ class PhotoPolarAlign(Frame):
         '''
         User wants to select an image file
         '''
-        import tkFileDialog
+        import tkinter.filedialog
         from os.path import splitext, dirname, basename
         options = {}
         options['filetypes'] = [('JPEG files', '.jpg .jpeg .JPG .JPEG'),
@@ -824,7 +846,7 @@ class PhotoPolarAlign(Frame):
         titles['h'] = 'The horizontal image of the Celestial Pole region'
         titles['i'] = 'The horizontal image after Alt/Az adjustment'
         options['title'] = titles[hint]
-        img = tkFileDialog.askopenfilename(**options)
+        img = tkinter.filedialog.askopenfilename(**options)
         if img:
             wcs = splitext(img)[0] + '.wcs'
             if self.happy_with(wcs, img):
@@ -1068,9 +1090,9 @@ class PhotoPolarAlign(Frame):
         # pixel coordinates
         cpcrdh = wcsh.wcs_world2pix(cpskycrd, 1)
         if self.hemi == 'N':
-            print 'Northern Celestial Pole', dech
+            print('Northern Celestial Pole', dech)
         else:
-            print 'Southern Celestial Pole', dech
+            print('Southern Celestial Pole', dech)
         scaleh = scale_frm_header(headh)
         widthh, heighth = wid_hei_frm_header(headh)
         if wid_hei_frm_header(headh) != wid_hei_frm_header(headv):
@@ -1180,34 +1202,34 @@ class PhotoPolarAlign(Frame):
         widget.update()
 
     def slurpAT(self):
-        import tkFileDialog
-        import ConfigParser
+        import tkinter.filedialog
+        import configparser
         stat_bar(self,'Reading...')
         options = {}
         options['filetypes'] = [('Config files', '.cfg'),
                                 ('all files', '.*')]
         options['initialdir'] = self.imgdir
         options['title'] = 'The AstroTortilla configuration file'
-        cfg_fn = tkFileDialog.askopenfilename(**options)
-        config = ConfigParser.SafeConfigParser()
+        cfg_fn = tkinter.filedialog.askopenfilename(**options)
+        config = configparser.ConfigParser()
         config.read(cfg_fn)
         for s in config.sections():
             if s == 'Solver-AstrometryNetSolver':
                 for o in config.options(s):
                     if o == 'configfile':
-                        self.local_configfile.set(config.get(s,o, None))
+                        self.local_configfile.set(config.get(s,o))
                     elif o == 'shell':
-                        self.local_shell.set(config.get(s,o, None))
+                        self.local_shell.set(config.get(s,o))
                     elif o == 'downscale':
-                        self.local_downscale.set(config.get(s,o, None))
+                        self.local_downscale.setint(config.get(s,o))
                     elif o == 'scale_units':
-                        self.local_scale_units.set(config.get(s,o,None))
+                        self.local_scale_units.set(config.get(s,o))
                     elif o == 'scale_low':
-                        self.local_scale_low.set(config.get(s,o,None))
+                        self.local_scale_low.set(config.getfloat(s,o))
                     elif o == 'scale_max':
-                        self.local_scale_hi.set(config.get(s,o, None))
+                        self.local_scale_hi.set(config.getfloat(s,o))
                     elif o == 'xtra':
-                        self.local_xtra.set(config.get(s,o,None))
+                        self.local_xtra.set(config.get(s,o))
                         
         stat_bar(self,'Idle')
         return
@@ -1353,7 +1375,7 @@ class PhotoPolarAlign(Frame):
         self.wstat = nxt
 
     def __init__(self, master=None):
-        import ConfigParser
+        import configparser
         import numpy
         import os 
         # a F8Ib 2.0 mag star, Alpha Ursa Minoris
@@ -1389,31 +1411,32 @@ class PhotoPolarAlign(Frame):
         
 
         # Read the User preferences
-        self.config = ConfigParser.ConfigParser()
+        self.config = configparser.ConfigParser()
         self.config.read(self.cfgfn)
         # ...the key
         try:
-            k_ini = self.config.get('nova', 'apikey', None)
+            k_ini = self.config.get('nova', 'apikey')
         except :
             k_ini = None
+        print ("k_ini", k_ini)
         self.apikey = StringVar(value=k_ini)
         # ...the Image directory
         try: 
-            self.imgdir = self.config.get('file', 'imgdir', None)
+            self.imgdir = self.config.get('file', 'imgdir')
         except :        
             self.imgdir = None
         # ...geometry
         try:
-            self.usergeo = self.config.get('appearance', 'geometry', None)
+            self.usergeo = self.config.get('appearance', 'geometry')
         except :
             self.usergeo = None
         master.geometry(self.usergeo)
         # do we want to help solves by restricting the scale once we have an estimate
-        self.restrict_scale = IntVar(0)
+        self.restrict_scale = IntVar(value=0)
         try:
-            self.restrict_scale.set(self.config.get('operations','restrict scale', 0))
+            self.restrict_scale.set(self.config.getint('operations','restrict scale'))
         except:
-            self.restrict_scale.set(0)
+            self.restrict_scale.set(value=0)
             
         # the filenames of images
         self.vimg_fn = ''
@@ -1487,17 +1510,17 @@ class PhotoPolarAlign(Frame):
         self.wlhsol.configure(state='disabled')
         self.wlisol.configure(state='disabled')
         try:
-            self.local_shell.set(self.config.get('local','shell',''))
-            self.local_downscale.set(self.config.get('local','downscale',1))
-            self.local_configfile.set(self.config.get('local','configfile',''))
-            self.local_scale_units.set(self.config.get('local','scale_units',''))
-            self.local_scale_low.set(self.config.get('local','scale_low',0))
-            self.local_scale_hi.set(self.config.get('local','scale_hi',0))
-            self.local_xtra.set(self.config.get('local','xtra',''))
+            self.local_shell.set(self.config.get('local','shell'))
+            self.local_downscale.set(self.config.getint('local','downscale'))
+            self.local_configfile.set(self.config.get('local','configfile'))
+            self.local_scale_units.set(self.config.get('local','scale_units'))
+            self.local_scale_low.set(self.config.getfloat('local','scale_low'))
+            self.local_scale_hi.set(self.config.getfloat('local','scale_hi'))
+            self.local_xtra.set(self.config.get('local','xtra'))
             # check solve-field cmd
             exit_status = os.system(self.local_shell.get() % 'solve-field > /dev/null')
             if exit_status != 0:
-                print "Can't use local astrometry.net solver, check PATH"
+                print("Can't use local astrometry.net solver, check PATH")
             else:
                 self.wlvsol.configure(state='active')
                 self.wlhsol.configure(state='active')
