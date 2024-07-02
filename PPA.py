@@ -6,8 +6,15 @@ Created on Sun Oct 12 22:40:05 2014
 """
 
 import sys
-import time
+import os
 import base64
+import threading
+import config
+import time
+
+from dwarf_python_api.get_live_data_dwarf import getGetLastPhoto, read_config
+from dwarf_python_api.lib.dwarf_utils import motor_action, perform_time, perform_timezone, read_camera_exposure, read_camera_gain, read_camera_IR, permform_update_camera_setting, perform_takePhoto, save_bluetooth_config_from_ini_file
+from dwarf_ble_connect.connect_bluetooth import connect_bluetooth
 
 try:
     # py3
@@ -273,6 +280,14 @@ def stat_bar(self, txt):
     self.stat_msg = txt
     self.wstat.config(text=self.stat_msg)
     self.wstat.update()
+
+def dwarf_bar(self, txt):
+    '''
+    Update the Dwarf bar
+    '''
+    self.dwarf_status_msg = txt
+    self.wdwco.config(text=self.dwarf_status_msg)
+    self.wdwco.update()
 
 def limg2wcs(self, filename, wcsfn, hint):
     import os
@@ -809,6 +824,106 @@ class PhotoPolarAlign(Frame):
         
         Button(win, text='OK', command=self.settings_destroy).pack(pady=4)
 
+    def monitor_ip_changes(self):
+        previous_ip = None
+        time.sleep(2)
+        result = False
+        
+        while not result:
+            current_ip = config.DWARF_IP
+
+            if current_ip != previous_ip:
+                previous_ip = current_ip
+                if current_ip == "" :
+                    print("Info: IP address setting cleared.")
+                    self.dwarf_status_msg = "Not Connected"
+                    self.dwarf_status = False
+                elif current_ip == "Exit":
+                    print("Info: IP address setting cleared.")
+                    self.dwarf_status_msg = "Not Connected"
+                    self.dwarf_status = False
+                    result = False
+                else:
+                    print(f"IP address set to: {current_ip}")
+                    self.dwarf_status_msg = "Bluetooth Connected"
+                    result = True
+
+                dwarf_bar(self, self.dwarf_status_msg)
+                previous_ip = current_ip
+
+                if result and self.dwarf_status:
+                    #init Frame : TIME and TIMZONE
+                    result = perform_time()
+
+                    if result:
+                        result = perform_timezone()
+                        print("OK: perform_timezone.")
+                    else:
+                        print("Error: perform_time.")
+
+                    if result:
+                        self.dwarf_status_msg = "Wifi Connected"
+                        self.dwarf_status = True
+                        dwarf_bar(self, self.dwarf_status_msg)
+                    else:
+                        print("Error: perform_timezone.")
+
+                else:
+                    print("Exit.")
+
+            time.sleep(1)  # Adjust sleep interval as needed
+
+
+    def dwarf_connect(self):
+        if not save_bluetooth_config_from_ini_file():
+          print ("Erroro: No Wifi Data have bee found, can't connect to wifi") 
+          print ("Need to update the config file with Wifi Informations.") 
+          self.dwarf_status_msg = "No Wifi Infos Found need to update config.ini first"
+          self.dwarf_status = False
+          dwarf_bar(self, self.dwarf_status_msg)
+
+        else :
+          result = connect_bluetooth()
+          time.sleep(2)
+          # Start monitoring IP changes in a separate thread
+          monitor_thread = threading.Thread(target=self.monitor_ip_changes)
+          monitor_thread.start()
+
+    def dwarf_move_polar(self):
+        if self.dwarf_status:
+            motor_action(5)
+            motor_action(6)
+            motor_action(2)
+            motor_action(3)
+
+        return True
+
+    def dwarf_move_to_0(self):
+        if self.dwarf_status:
+            motor_action(2)
+
+        return True
+
+    def dwarf_move_to_90(self):
+        if self.dwarf_status:
+            motor_action(4)
+        return True
+
+    def dwarf_init_photo(self):
+        if self.dwarf_status:
+            if (camera_exposure := read_camera_exposure()):
+                print("the exposition is: ", camera_exposure)
+                permform_update_camera_setting("exposure", camera_exposure)
+
+            if (camera_gain := read_camera_gain()):
+                print("the gain is:", camera_gain)
+                permform_update_camera_setting("gain", camera_gain)
+
+            if (camera_IR := read_camera_IR()):
+                print("the IR value is:", camera_IR)
+                permform_update_camera_setting("IR", camera_IR)
+        return True
+
     def quit_method(self):
         '''
         User wants to quit
@@ -833,21 +948,33 @@ class PhotoPolarAlign(Frame):
 
     def get_file(self, hint):
         '''
-        User wants to select an image file
+        Check if Dwarf is connected to take a photo
         '''
         import tkinter.filedialog
         from os.path import splitext, dirname, basename
-        options = {}
-        options['filetypes'] = [('JPEG files', '.jpg .jpeg .JPG .JPEG'),
-                                ('all files', '.*')]
-        options['initialdir'] = self.imgdir
-        titles = {}
-        titles['v'] = 'The vertical image of the Celestial Pole region'
-        titles['h'] = 'The horizontal image of the Celestial Pole region'
-        titles['i'] = 'The horizontal image after Alt/Az adjustment'
-        options['title'] = titles[hint]
-        img = tkinter.filedialog.askopenfilename(**options)
+
+        img = False
+        if self.dwarf_status:
+            if (perform_takePhoto()):
+                img = getGetLastPhoto(0, True)
+                print ("Image Saved: ", img) 
+        else:
+            '''
+            User wants to select an image file
+            '''
+            options = {}
+            options['filetypes'] = [('JPEG files', '.jpg .jpeg .JPG .JPEG'),
+                                    ('all files', '.*')]
+            options['initialdir'] = self.imgdir
+            titles = {}
+            titles['v'] = 'The vertical image of the Celestial Pole region'
+            titles['h'] = 'The horizontal image of the Celestial Pole region'
+            titles['i'] = 'The horizontal image after Alt/Az adjustment'
+            options['title'] = titles[hint]
+            img = tkinter.filedialog.askopenfilename(**options)
+
         if img:
+            print("img: ", img)
             wcs = splitext(img)[0] + '.wcs'
             if self.happy_with(wcs, img):
                 self.update_solved_labels(hint, 'active')
@@ -1243,12 +1370,25 @@ class PhotoPolarAlign(Frame):
         #
         self.menubar = Menu(master)
         self.filemenu = Menu(self.menubar, tearoff=0)
+        self.dwarfmenu = Menu(self.menubar, tearoff=0)
         self.helpmenu = Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label='File', menu=self.filemenu)
+        self.menubar.add_cascade(label='Dwarf', menu=self.dwarfmenu)
         self.menubar.add_cascade(label='Help', menu=self.helpmenu)
         self.filemenu.add_command(label='Settings...',
                                   command=self.settings_open)
         self.filemenu.add_command(label='Exit', command=self.quit_method)
+        self.dwarfmenu.add_command(label='Connect...',
+                                  command=self.dwarf_connect)
+        self.dwarfmenu.add_command(label='Polar Move To...',
+                                  command=self.dwarf_move_polar)
+        self.dwarfmenu.add_command(label='Polar Align 0°...',
+                                  command=self.dwarf_move_to_0)
+        self.dwarfmenu.add_command(label='Polar Align 90°...',
+                                  command=self.dwarf_move_to_90)
+        self.dwarfmenu.add_command(label='Init Photo...',
+                                  command=self.dwarf_init_photo)
+
         self.helpmenu.add_command(label='Help', command=help_f)
         self.helpmenu.add_command(label='About...', command=about_f)
         self.myparent.config(menu=self.menubar)
@@ -1366,6 +1506,15 @@ class PhotoPolarAlign(Frame):
         nxt = Label(self.wfrmo, anchor='center', font='-weight bold -size 14')
         nxt.pack(anchor='center')
         self.wvar9 = nxt
+        # #################################################################
+        nxt = LabelFrame(master, borderwidth=2, relief='ridge',
+                         text='Dwarf II Status')
+        nxt.pack(side='top', fill='x')
+        self.wfdwco = nxt
+        nxt = Label(self.wfdwco, anchor='w', text=self.dwarf_status_msg)
+        nxt.pack(anchor='w')
+        self.wdwco = nxt
+
         # #################################################################
         nxt = LabelFrame(master, borderwidth=2, relief='ridge', text='Status')
         nxt.pack(side='bottom', fill='x')
@@ -1496,12 +1645,17 @@ class PhotoPolarAlign(Frame):
         self.wfrmo = None
         self.wvar9 = None
 
+        self.wfdwco = None
+        self.wdwco = None
+
         self.wfrst = None
         self.wstat = None
 
         self.myparent = None
 
-        
+        self.dwarf_status_msg = "Not connected"
+        self.dwarf_status = False
+
         self.stat_msg = 'Idle'
         Frame.__init__(self, master)
         self.create_widgets(master)
@@ -1539,6 +1693,6 @@ class PhotoPolarAlign(Frame):
         #
 
 ROOT = Tk()
-ROOT.geometry('440x470+300+300')
+ROOT.geometry('440x500+300+300')
 APP = PhotoPolarAlign(master=ROOT)
 ROOT.mainloop()
