@@ -8,3 +8,14 @@ apt_thumbs/h.png
 apt_thumbs/i.png
 apt_thumbs/v.png
 PPA.ini
+/build
+/dist
+/__pycache__
+-noconfirm.spec
+/dwarf_ble_connect
+/dwarf_python_api-1.1.0-py3.6.egg-info
+/dwarf_python_api-1.1.0.dist-info
+/dwarf_python_api
+/myenv
+/myenv3
+PPA.spec

@@ -7,20 +7,38 @@ Working with Python3
 
 python3 -m pip install -r requirements
 
-
+-----------------------------------------
 New Version for Dwarf 2
 
 Installation
 
-First Install library with python -m pip install -r requirements
+ 1. First Install libraries with : 
+  
+      python -m pip install -r requirements
 
-Then you need the dwarf_python_api found also on my github
+ 2. Then you need the dwarf_python_api found also on my github
 
-you can direct download the release tar file on github
+      python -m pip install -r requirements_local.txt --target .
 
-This library must be installed locally in the root pass of this project with the parameter --target 
+    This library must be installed locally in the root path of this project with the parameter --target .
 
-=> cd Path_to_clone_version_of_dwarf_test_apiV2
-=> python -m pip install  Path_to_downloaded_dwarf_python_api/dwarf_python_api-1.1.0.tar.gz --target .
+ 3. Configure the config.ini with your specifics data:
 
-then you can start it with => python .\PPA.py
+      [CONFIG]
+      longitude = 
+      latitude = 
+      timezone = 
+      local_photo_directory = .\Images
+      ble_psd = DWARF_12345678
+      ble_sta_ssid = 
+      ble_sta_pwd = 
+
+   The timezone value is like this
+
+       timezone = Europe/Paris
+
+   The last three corresponds to your home wifi values
+
+ 4. Finally you can start it with:
+
+      python .\PPA.py

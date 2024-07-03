@@ -4,3 +4,8 @@ astropy
 
 scipy
 
+websockets==11.0.3
+
+protobuf==3.20.*
+
+bleak
