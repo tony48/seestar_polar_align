@@ -11,9 +11,10 @@ import base64
 import threading
 import config
 import time
+import importlib
 
 from dwarf_python_api.get_live_data_dwarf import getGetLastPhoto, read_config
-from dwarf_python_api.lib.dwarf_utils import motor_action, perform_time, perform_timezone, read_camera_exposure, read_camera_gain, read_camera_IR, permform_update_camera_setting, perform_takePhoto, save_bluetooth_config_from_ini_file
+from dwarf_python_api.lib.dwarf_utils import motor_action, perform_time, perform_timezone, read_camera_exposure, read_camera_gain, read_camera_IR, permform_update_camera_setting, perform_takePhoto, save_bluetooth_config_from_ini_file, perform_start_autofocus, perform_stop_autofocus
 from dwarf_ble_connect.connect_bluetooth import connect_bluetooth
 
 try:
@@ -281,12 +282,19 @@ def stat_bar(self, txt):
     self.wstat.config(text=self.stat_msg)
     self.wstat.update()
 
-def dwarf_bar(self, txt):
+def dwarf_bar(self, txt, txt_process = "", txt_info = ""):
     '''
     Update the Dwarf bar
     '''
     self.dwarf_status_msg = txt
-    self.wdwco.config(text=self.dwarf_status_msg)
+    self.dwarf_status_msg_process = txt_process
+    self.dwarf_status_msg_info = txt_info
+    msg_display = self.dwarf_status_msg
+    if self.dwarf_status_msg_process:
+       msg_display += " | " + self.dwarf_status_msg_process
+    if self.dwarf_status_msg_info:
+       msg_display += " : " + self.dwarf_status_msg_info
+    self.wdwco.config(text=msg_display)
     self.wdwco.update()
 
 def limg2wcs(self, filename, wcsfn, hint):
@@ -826,103 +834,444 @@ class PhotoPolarAlign(Frame):
 
     def monitor_ip_changes(self):
         previous_ip = None
-        time.sleep(2)
-        result = False
+        previous_ui = None
+        bluetooth_connect = False
+        closing = False
+        resultIP = False
+        resultUI = False
+        twice_blank = 0
+        time.sleep(3)
+        print(f"Starting monitor_ip_changes")
         
-        while not result:
+        while not resultUI and not resultIP:
             current_ip = config.DWARF_IP
+            current_ui = config.DWARF_UI
 
             if current_ip != previous_ip:
                 previous_ip = current_ip
                 if current_ip == "" :
-                    print("Info: IP address setting cleared.")
-                    self.dwarf_status_msg = "Not Connected"
-                    self.dwarf_status = False
-                elif current_ip == "Exit":
-                    print("Info: IP address setting cleared.")
-                    self.dwarf_status_msg = "Not Connected"
-                    self.dwarf_status = False
-                    result = False
+                    print(f"Info: IP address setting has been cleared")
                 else:
                     print(f"IP address set to: {current_ip}")
                     self.dwarf_status_msg = "Bluetooth Connected"
-                    result = True
+                    dwarf_status_msg_process = "Bluetooth Connecting"
+                    self.dwarf_status_msg_info = "Success"
+                    self.dwarf_status = True
+                    self.dwarf_status_bluetooth = True
+                    bluetooth_connect = True
+                    resultIP = True
 
-                dwarf_bar(self, self.dwarf_status_msg)
-                previous_ip = current_ip
-
-                if result and self.dwarf_status:
-                    #init Frame : TIME and TIMZONE
-                    result = perform_time()
-
-                    if result:
-                        result = perform_timezone()
-                        print("OK: perform_timezone.")
+            if current_ui != previous_ui:
+                previous_ui = current_ui
+                if current_ui == "" :
+                    twice_blank += 1
+                    print(f"Info: UI setting cleared :{twice_blank}")
+                    if not closing:
+                        self.dwarf_status_msg = "Not Connected"
+                        dwarf_status_msg_process = "Bluetooth Connecting..."
+                        self.dwarf_status_msg_info = "Started"
+                        self.dwarf_status = False
                     else:
-                        print("Error: perform_time.")
+                        resultUI = True
+                elif current_ui == "Exit":
+                    print("Info: closing connect Page.")
+                    closing = True
+                    if not bluetooth_connect:
+                        self.dwarf_status_msg = "Not Connected"
+                        dwarf_status_msg_process = "Bluetooth Connecting"
+                        self.dwarf_status_msg_info = "Stopped"
+                        self.dwarf_status = False
+                elif current_ui == "Close":
+                    print("Info: Force closing connect Page.")
+                    if not bluetooth_connect:
+                        self.dwarf_status_msg = "Not Connected"
+                        dwarf_status_msg_process = "Bluetooth Connecting"
+                        self.dwarf_status_msg_info = "Stopped"
+                        self.dwarf_status = False
+                    resultUI = True
 
-                    if result:
-                        self.dwarf_status_msg = "Wifi Connected"
-                        self.dwarf_status = True
-                        dwarf_bar(self, self.dwarf_status_msg)
-                    else:
-                        print("Error: perform_timezone.")
+                dwarf_bar(self, self.dwarf_status_msg, dwarf_status_process, dwarf_status_msg_info)
 
-                else:
-                    print("Exit.")
+            time.sleep(0.5)  # Adjust sleep interval as needed
+#           importlib.reload(config)
 
-            time.sleep(1)  # Adjust sleep interval as needed
+        print(f"Closing monitor_ip_changes")
+        if resultIP and self.dwarf_status:
+            self.dwarf_status_msg = "Bluetooth Connected"
+            dwarf_status_msg_process = ""
+            self.dwarf_status_msg_info = ""
+            self.dwarf_test_connect(2)
 
+        else:
+            self.dwarf_status_msg = "Not Connected"
+            dwarf_status_msg_process = ""
+            self.dwarf_status_msg_info = ""
+            self.dwarf_status_bluetooth = False
+
+            dwarf_bar(self, self.dwarf_status_msg, dwarf_status_process, dwarf_status_msg_info)
+            print("Exit.")
+
+    def dwarf_test_connect(self, step, maxTry = 2):
+        nb_test = 0
+        result = False
+
+        dwarf_status_msg_old = self.dwarf_status_msg
+        dwarf_status_msg_process = "Wifi Connecting..."
+        self.dwarf_status_msg_info = ""
+
+        dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        # try two tests 
+        while not result and nb_test < maxTry:
+            time.sleep(0.5)  # Adjust sleep interval as needed
+
+            #init Frame : TIME
+            self.dwarf_status_msg = dwarf_status_msg_old
+            dwarf_status_msg_process = "Wifi Configuring Time..."
+            self.dwarf_status_msg_info = ""
+
+            dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+            result = perform_time()
+            nb_test +=1
+
+        if result:
+            self.dwarf_status_msg = "Wifi Connected"
+            dwarf_status_msg_process = "Wifi Config Time"
+            self.dwarf_status_msg_info = "Success"
+            print("OK: perform_time.")
+        else:
+            self.dwarf_status_msg = dwarf_status_msg_old
+            dwarf_status_msg_process = "Wifi Config Time"
+            self.dwarf_status_msg_info = "Error"
+            print("Error: perform_time.")
+
+        dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+        time.sleep(1)
+
+        if (result and step==2):
+            nb_test = 0
+            result = False
+            while not result and nb_test < maxTry:
+                time.sleep(0.5)  # Adjust sleep interval as needed
+
+                #init Frame : TIMEZONE
+                self.dwarf_status_msg = "Wifi Connected"
+                dwarf_status_msg_process = "Wifi Configuring TimeZone..."
+                self.dwarf_status_msg_info = ""
+
+                dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+                result = perform_timezone()
+                nb_test +=1
+            if result:
+                self.dwarf_status_msg = "Wifi Connected"
+                dwarf_status_msg_process = "Wifi Config TimeZone"
+                self.dwarf_status_msg_info = "Success"
+                print("OK: perform_timezone.")
+            else:
+                self.dwarf_status_msg = dwarf_status_msg_old
+                dwarf_status_msg_process = "Wifi Config TimeZone"
+                self.dwarf_status_msg_info = "Error"
+                print("Error: perform_timezone.")
+
+            dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+            time.sleep(1)
+
+        if result:
+            self.dwarf_status_msg = "Wifi Connected"
+            dwarf_status_msg_process = ""
+            self.dwarf_status_msg_info = ""
+            self.dwarf_status = True
+        else:
+            self.dwarf_status_msg = dwarf_status_msg_old
+            dwarf_status_msg_process = ""
+            self.dwarf_status_msg_info = ""
+            self.dwarf_status = False
+
+        dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        return result
 
     def dwarf_connect(self):
+        print("dwarf_connect")
+        current_ip = config.DWARF_IP
+        result_TestConnect = False
+
         if not save_bluetooth_config_from_ini_file():
-          print ("Erroro: No Wifi Data have bee found, can't connect to wifi") 
+          print ("Erroro: No Wifi Data have been found, can't connect to wifi") 
           print ("Need to update the config file with Wifi Informations.") 
           self.dwarf_status_msg = "No Wifi Infos Found need to update config.ini first"
           self.dwarf_status = False
           dwarf_bar(self, self.dwarf_status_msg)
 
-        else :
-          result = connect_bluetooth()
-          time.sleep(2)
+        elif current_ip:
+          if self.dwarf_status_bluetooth:
+            result_TestConnect = self.dwarf_test_connect(1, 2)
+          else:
+            #need to configure Timezone also in this case
+            result_TestConnect = self.dwarf_test_connect(2, 2)
+            if result_TestConnect:
+                self.dwarf_status_bluetooth = True
+
+        if (not current_ip or not result_TestConnect):
+          # Connect thread management
+          if self.connect_thread is None or not self.connect_thread.is_alive():
+            self.connect_thread = threading.Thread(target=connect_bluetooth)
+            self.connect_thread.start()
+
           # Start monitoring IP changes in a separate thread
-          monitor_thread = threading.Thread(target=self.monitor_ip_changes)
-          monitor_thread.start()
+          if self.monitor_thread is None or not self.monitor_thread.is_alive():
+            self.monitor_thread = threading.Thread(target=self.monitor_ip_changes)
+            self.monitor_thread.start()
 
     def dwarf_move_polar(self):
-        if self.dwarf_status:
-            motor_action(5)
-            motor_action(6)
-            motor_action(2)
-            motor_action(3)
+        print("dwarf_move_polar")
+        result = False
 
-        return True
+        if self.dwarf_status:
+            result = self.dwarf_motor_action(5, "Rotation Motor Resetting...", "Rotation Motor Reset" )
+
+        if result:
+            result = self.dwarf_motor_action(6, "Pitch Motor Resetting...", "Pitch Motor Reset" )
+
+        if result:
+            result = self.dwarf_motor_action(2, "Rotation Motor Positionning...", "Rotation Motor Position" )
+
+        if result:
+            result = self.dwarf_motor_action(3, "Pitch Motor Positionning...", "Pitch Motor Position" )
+
+        if result:
+            self.dwarf_status_msg_process = "Polar Align"
+            self.dwarf_status_msg_info = "Success"
+        else:
+            self.dwarf_status_msg_process = "Polar Align"
+            self.dwarf_status_msg_info = "Error"
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        return result
+
+    def dwarf_motor_action(self, action, text , text_final):
+        if not self.dwarf_status:
+            result = False
+            return result
+
+        self.dwarf_status_msg_process = text
+        self.dwarf_status_msg_info = ""
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+           
+        result = motor_action(action)
+        print(result)
+
+        if result:
+            self.dwarf_status_msg_process = text_final
+            self.dwarf_status_msg_info = "Success"
+        else:
+            self.dwarf_status_msg_process = text_final
+            self.dwarf_status_msg_info = "Error"
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        time.sleep (1)
+        return result
 
     def dwarf_move_to_0(self):
-        if self.dwarf_status:
-            motor_action(2)
+        if not self.dwarf_status:
+            result = False
+            return result
 
-        return True
+        self.dwarf_status_msg_process = "Polar Align Positionning 0°..."
+        self.dwarf_status_msg_info = ""
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+           
+        result = motor_action(2)
+
+        if result:
+            self.dwarf_status_msg_process = "Polar Align Position 0°"
+            self.dwarf_status_msg_info = "Success"
+        else:
+            self.dwarf_status_msg_process = "Polar Align Position 0°"
+            self.dwarf_status_msg_info = "Error"
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        return result
 
     def dwarf_move_to_90(self):
-        if self.dwarf_status:
-            motor_action(4)
-        return True
+        if not self.dwarf_status:
+            result = False
+            return result
+
+        self.dwarf_status_msg_process = "Polar Align Positionning 90°..."
+        self.dwarf_status_msg_info = ""
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+           
+        result = motor_action(4)
+
+        if result:
+            self.dwarf_status_msg_process = "Polar Align Position 90°"
+            self.dwarf_status_msg_info = "Success"
+        else:
+            self.dwarf_status_msg_process = "Polar Align Position 90°"
+            self.dwarf_status_msg_info = "Error"
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        return result
 
     def dwarf_init_photo(self):
-        if self.dwarf_status:
-            if (camera_exposure := read_camera_exposure()):
-                print("the exposition is: ", camera_exposure)
-                permform_update_camera_setting("exposure", camera_exposure)
+        print("dwarf_init_photo")
+        if not self.dwarf_status:
+            result = False
 
-            if (camera_gain := read_camera_gain()):
-                print("the gain is:", camera_gain)
-                permform_update_camera_setting("gain", camera_gain)
+        if (camera_exposure := read_camera_exposure()):
+            print("the exposition is: ", camera_exposure)
+            self.dwarf_status_msg_process = "Setting Exposition to " + camera_exposure
+            self.dwarf_status_msg_info = ""
 
-            if (camera_IR := read_camera_IR()):
-                print("the IR value is:", camera_IR)
-                permform_update_camera_setting("IR", camera_IR)
-        return True
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+            result = permform_update_camera_setting("exposure", camera_exposure)
+            if result == 0:
+                self.dwarf_status_msg_process = "Set Exposition to " + camera_exposure
+                self.dwarf_status_msg_info = "Success"
+                result = True
+            else:
+                self.dwarf_status_msg_process = "Set Exposition to " + camera_exposure
+                self.dwarf_status_msg_info = "Error"
+                result = False
+
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+            time.sleep(1)
+        else:
+            self.dwarf_status_msg_process = "Exposition is not set in config File"
+            self.dwarf_status_msg_info = "Error"
+
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+            result = False
+
+        if result and (camera_gain := read_camera_gain()):
+            print("the gain is:", camera_gain)
+            self.dwarf_status_msg_process = "Setting Gain to " + camera_gain
+            self.dwarf_status_msg_info = ""
+
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+            result = permform_update_camera_setting("gain", camera_gain)
+            if result == 0:
+                self.dwarf_status_msg_process = "Set Gain to " + camera_gain
+                self.dwarf_status_msg_info = "Success"
+                result = True
+            else:
+                self.dwarf_status_msg_process = "Set Gain to " + camera_gain
+                self.dwarf_status_msg_info = "Error"
+                result = False
+
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+            time.sleep(1)
+        elif result:
+            self.dwarf_status_msg_process = "Gain is not set in config File"
+            self.dwarf_status_msg_info = "Error"
+
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+            result = False
+
+        if result and (camera_IR := read_camera_IR()):
+            print("the IR value is:", camera_IR)
+            self.dwarf_status_msg_process = "Setting IR to " + camera_IR
+            self.dwarf_status_msg_info = ""
+
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+            result = permform_update_camera_setting("IR", camera_IR)
+            if result == 0:
+                self.dwarf_status_msg_process = "Set IR to " + camera_IR
+                self.dwarf_status_msg_info = "Success"
+                result = True
+            else:
+                self.dwarf_status_msg_process = "Set IR to " + camera_IR
+                self.dwarf_status_msg_info = "Error"
+                result = False
+
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+            time.sleep(1)
+        elif result:
+            self.dwarf_status_msg_process = "IR is not set in config File"
+            self.dwarf_status_msg_info = "Error"
+
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+            result = False
+
+        if result:
+            self.dwarf_status_msg_process = "Set Photo Parameters"
+            self.dwarf_status_msg_info = "Success"
+        else:
+            self.dwarf_status_msg_process = "Set Photo Parameters"
+            self.dwarf_status_msg_info = "Error"
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        return result
+
+    def dwarf_autofocus(self, infinite):
+        print("dwarf_autofocus")
+        if not self.dwarf_status:
+            result = False
+            return result
+
+        if infinite:
+            self.dwarf_status_msg_process = "Starting Infinite Autofocus..."
+        else:
+            self.dwarf_status_msg_process = "Starting Autofocus..."
+        self.dwarf_status_msg_info = ""
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+           
+        result = perform_start_autofocus(infinite)
+
+        if infinite:
+            self.dwarf_status_msg_process = "Infinite Autofocus"
+        else:
+            self.dwarf_status_msg_process = "Autofocus"
+
+        if result:
+            self.dwarf_status_msg_info = "Success"
+        else:
+            self.dwarf_status_msg_info = "Error"
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        return result
+
+    def dwarf_stop_autofocus(self):
+        print("dwarf_stop_autofocus")
+        if not self.dwarf_status:
+            result = False
+            return result
+
+        self.dwarf_status_msg_process = "Stopping Autofocus..."
+        self.dwarf_status_msg_info = ""
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+           
+        result = perform_stop_autofocus()
+
+        self.dwarf_status_msg_process = "Stop Autofocus"
+
+        if result == 0:
+            self.dwarf_status_msg_info = "Success"
+            result = True
+        else:
+            self.dwarf_status_msg_info = "Error"
+            result = False
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        return result
 
     def quit_method(self):
         '''
@@ -955,9 +1304,36 @@ class PhotoPolarAlign(Frame):
 
         img = False
         if self.dwarf_status:
+            self.dwarf_status_msg_process = "Taking a Photo..."
+            self.dwarf_status_msg_info = ""
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
             if (perform_takePhoto()):
+                self.dwarf_status_msg_process = "Take a photo"
+                self.dwarf_status_msg_info = "Success"
+                dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+                time.sleep(1)
+                self.dwarf_status_msg_process = "Photo Uploading..."
+                self.dwarf_status_msg_info = ""
+                dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
                 img = getGetLastPhoto(0, True)
-                print ("Image Saved: ", img) 
+
+                if (img):
+                    print ("Image Saved: ", img) 
+                    self.dwarf_status_msg_process = "Upload photo"
+                    self.dwarf_status_msg_info = "Success"
+                    dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+                else:
+                    self.dwarf_status_msg_process = "Upload photo"
+                    self.dwarf_status_msg_info = "Error"
+                    dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+                    return False 
+            else:
+                self.dwarf_status_msg_process = "Take a photo"
+                self.dwarf_status_msg_info = "Error"
+                dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+                return False 
         else:
             '''
             User wants to select an image file
@@ -1388,6 +1764,15 @@ class PhotoPolarAlign(Frame):
                                   command=self.dwarf_move_to_90)
         self.dwarfmenu.add_command(label='Init Photo...',
                                   command=self.dwarf_init_photo)
+        self.autofocusmenu = Menu(self.dwarfmenu, tearoff=0)
+        self.dwarfmenu.add_cascade(label='Autofocus', menu=self.autofocusmenu)
+
+        self.autofocusmenu.add_command(label='AutoFocus Infinite...',
+                                  command=lambda:self.dwarf_autofocus(True))
+        self.autofocusmenu.add_command(label='AutoFocus...',
+                                  command=lambda:self.dwarf_autofocus(False))
+        self.autofocusmenu.add_command(label='Stop AutoFocus...',
+                                  command=self.dwarf_stop_autofocus)
 
         self.helpmenu.add_command(label='Help', command=help_f)
         self.helpmenu.add_command(label='About...', command=about_f)
@@ -1654,7 +2039,13 @@ class PhotoPolarAlign(Frame):
         self.myparent = None
 
         self.dwarf_status_msg = "Not connected"
+        self.dwarf_status_msg_process = ""
+        self.dwarf_status_msg_info = ""
         self.dwarf_status = False
+        self.dwarf_status_bluetooth = False
+
+        self.monitor_thread = None
+        self.connect_thread = None
 
         self.stat_msg = 'Idle'
         Frame.__init__(self, master)

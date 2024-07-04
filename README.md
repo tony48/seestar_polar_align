@@ -42,3 +42,7 @@ Installation
  4. Finally you can start it with:
 
       python .\PPA.py
+ 
+ 5. To resolve your photos live you will need an api key on Nova Astrometry, setup in the settings Menu
+
+      https://nova.astrometry.net/api_help
