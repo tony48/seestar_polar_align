@@ -890,7 +890,7 @@ class PhotoPolarAlign(Frame):
                         self.dwarf_status = False
                     resultUI = True
 
-                dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, dwarf_status_msg_info)
+                dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
 
             time.sleep(0.5)  # Adjust sleep interval as needed
 #           importlib.reload(config)
