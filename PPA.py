@@ -840,6 +840,9 @@ class PhotoPolarAlign(Frame):
         resultIP = False
         resultUI = False
         twice_blank = 0
+        # in case of wifi error restart the process
+        if config.DWARF_IP != "":
+          previous_ip = config.DWARF_IP
         time.sleep(3)
         print(f"Starting monitor_ip_changes")
         
@@ -908,7 +911,7 @@ class PhotoPolarAlign(Frame):
             self.dwarf_status_msg_info = ""
             self.dwarf_status_bluetooth = False
 
-            dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, dwarf_status_msg_info)
+            dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
             print("Exit.")
 
     def dwarf_test_connect(self, step, maxTry = 2):
