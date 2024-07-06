@@ -7,14 +7,16 @@ Created on Sun Oct 12 22:40:05 2014
 
 import sys
 import os
+import shutil
 import base64
 import threading
 import config
 import time
 import importlib
-
+from filelock import FileLock
+from astropy.config import create_config_file
 from dwarf_python_api.get_live_data_dwarf import getGetLastPhoto, read_config
-from dwarf_python_api.lib.dwarf_utils import motor_action, perform_time, perform_timezone, read_camera_exposure, read_camera_gain, read_camera_IR, permform_update_camera_setting, perform_takePhoto, save_bluetooth_config_from_ini_file, perform_start_autofocus, perform_stop_autofocus
+from dwarf_python_api.lib.dwarf_utils import motor_action, perform_time, perform_timezone, perform_open_camera, read_camera_exposure, read_camera_gain, read_camera_IR, permform_update_camera_setting, perform_takePhoto, save_bluetooth_config_from_ini_file, perform_start_autofocus, perform_stop_autofocus
 from dwarf_ble_connect.connect_bluetooth import connect_bluetooth
 
 try:
@@ -559,9 +561,10 @@ def about_f():
     '''
     import tkinter.messagebox
     tkinter.messagebox.showinfo('About',
-                          'PhotoPolarAlign v1.0.4 \n' +
-                          'Copyright Â© 2014 Themos Tsikas, ' +
-                          'Jack Richmond')
+                          'PhotoPolarAlign v2.0.0 \n' +
+                          'Copyright © 2024 Themos Tsikas, ' +
+                          'Jack Richmond, ' +
+                          'JC Lesaint')
 
 def scale_frm_wcs(fn):
     from astropy.io import fits
@@ -832,6 +835,60 @@ class PhotoPolarAlign(Frame):
         
         Button(win, text='OK', command=self.settings_destroy).pack(pady=4)
 
+    def copy_file_in_current_directory(self, source_filename, destination_filename):
+        """
+        Copies a file from source_filename to destination_filename in the current directory.
+        :param source_filename: The name of the source file to copy.
+        :param destination_filename: The name where the file should be copied to.
+        """
+        try:
+            current_directory = os.getcwd()
+            source_path = os.path.join(current_directory, source_filename)
+            destination_path = os.path.join(current_directory, destination_filename)
+            shutil.copy(source_path, destination_path)
+            print(f"File copied from {source_filename} to {destination_filename}")
+            return True
+        except FileNotFoundError:
+            print(f"Source file {source_filename} not found in the current directory.")
+        except PermissionError:
+            print(f"Permission denied. Unable to copy to {destination_filename}.")
+        except Exception as e:
+            print(f"Error copying file: {e}")
+
+        return False
+
+    def force_stop_connect_bluetooth(self):
+        # Read the config file and update the UI to Close
+        CONFIG_FILE = 'config.py'
+        CONFIG_FILE_TMP = 'config_stop.tmp'
+        LOCK_FILE = 'config.lock'
+
+        lock = FileLock(LOCK_FILE)  # Lock file with no timeout (wait indefinitely)
+
+        with lock:
+            # Create or clear the temp file
+            open(CONFIG_FILE_TMP, 'w').close()
+
+            with open(CONFIG_FILE, 'r') as file:
+                lines = file.readlines()
+        
+            with open(CONFIG_FILE_TMP, 'w') as file:
+                for line in lines:
+                    if line.startswith('DWARF_UI'):
+                        file.write(f'DWARF_UI = "Close"\n')
+                    else:
+                        file.write(line)
+
+            # Copy tmp file
+            nb_try = 0
+            result_copy = self.copy_file_in_current_directory(CONFIG_FILE_TMP, CONFIG_FILE)
+            while nb_try < 3 and not result_copy:
+                result_copy = self.copy_file_in_current_directory(CONFIG_FILE_TMP, CONFIG_FILE)
+                nb_try += 1
+                time.sleep(0.25)
+
+            time.sleep(3)
+
     def monitor_ip_changes(self):
         previous_ip = None
         previous_ui = None
@@ -843,13 +900,22 @@ class PhotoPolarAlign(Frame):
         # in case of wifi error restart the process
         if config.DWARF_IP != "":
           previous_ip = config.DWARF_IP
+        if config.DWARF_UI != "":
+          previous_ui = config.DWARF_UI
         time.sleep(3)
         print(f"Starting monitor_ip_changes")
-        
-        while not resultUI and not resultIP:
+        check_file = True
+
+        # not((resultIP and resultUI) or (not resultIP and resultUI))
+        # while (not resultUI):
+        while (not self.stop_event.is_set() and not resultIP and not resultUI):
+
+            # Reload the config module to ensure the new value is used
+            if check_file:
+                importlib.reload(config)
+            check_file = not check_file
             current_ip = config.DWARF_IP
             current_ui = config.DWARF_UI
-
             if current_ip != previous_ip:
                 previous_ip = current_ip
                 if current_ip == "" :
@@ -857,7 +923,7 @@ class PhotoPolarAlign(Frame):
                 else:
                     print(f"IP address set to: {current_ip}")
                     self.dwarf_status_msg = "Bluetooth Connected"
-                    dwarf_status_msg_process = "Bluetooth Connecting"
+                    self.dwarf_status_msg_process = "Bluetooth Connecting"
                     self.dwarf_status_msg_info = "Success"
                     self.dwarf_status = True
                     self.dwarf_status_bluetooth = True
@@ -871,7 +937,7 @@ class PhotoPolarAlign(Frame):
                     print(f"Info: UI setting cleared :{twice_blank}")
                     if not closing:
                         self.dwarf_status_msg = "Not Connected"
-                        dwarf_status_msg_process = "Bluetooth Connecting..."
+                        self.dwarf_status_msg_process = "Bluetooth Connecting..."
                         self.dwarf_status_msg_info = "Started"
                         self.dwarf_status = False
                     else:
@@ -881,48 +947,48 @@ class PhotoPolarAlign(Frame):
                     closing = True
                     if not bluetooth_connect:
                         self.dwarf_status_msg = "Not Connected"
-                        dwarf_status_msg_process = "Bluetooth Connecting"
+                        self.dwarf_status_msg_process = "Bluetooth Connecting"
                         self.dwarf_status_msg_info = "Stopped"
                         self.dwarf_status = False
                 elif current_ui == "Close":
                     print("Info: Force closing connect Page.")
                     if not bluetooth_connect:
                         self.dwarf_status_msg = "Not Connected"
-                        dwarf_status_msg_process = "Bluetooth Connecting"
+                        self.dwarf_status_msg_process = "Bluetooth Connecting"
                         self.dwarf_status_msg_info = "Stopped"
                         self.dwarf_status = False
                     resultUI = True
 
-                dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
             time.sleep(0.5)  # Adjust sleep interval as needed
-#           importlib.reload(config)
 
         print(f"Closing monitor_ip_changes")
         if resultIP and self.dwarf_status:
+            print("Result : Bluetooth Connected.")
             self.dwarf_status_msg = "Bluetooth Connected"
-            dwarf_status_msg_process = ""
+            self.dwarf_status_msg_process = ""
             self.dwarf_status_msg_info = ""
             self.dwarf_test_connect(2)
 
-        else:
+        elif resultUI:
+            print("Result : Not Connected.")
             self.dwarf_status_msg = "Not Connected"
-            dwarf_status_msg_process = ""
+            self.dwarf_status_msg_process = ""
             self.dwarf_status_msg_info = ""
             self.dwarf_status_bluetooth = False
 
-            dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
-            print("Exit.")
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
     def dwarf_test_connect(self, step, maxTry = 2):
         nb_test = 0
         result = False
 
         dwarf_status_msg_old = self.dwarf_status_msg
-        dwarf_status_msg_process = "Wifi Connecting..."
+        self.dwarf_status_msg_process = "Wifi Connecting..."
         self.dwarf_status_msg_info = ""
 
-        dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
         # try two tests 
         while not result and nb_test < maxTry:
@@ -930,26 +996,26 @@ class PhotoPolarAlign(Frame):
 
             #init Frame : TIME
             self.dwarf_status_msg = dwarf_status_msg_old
-            dwarf_status_msg_process = "Wifi Configuring Time..."
+            self.dwarf_status_msg_process = "Wifi Configuring Time..."
             self.dwarf_status_msg_info = ""
 
-            dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
             result = perform_time()
             nb_test +=1
 
         if result:
             self.dwarf_status_msg = "Wifi Connected"
-            dwarf_status_msg_process = "Wifi Config Time"
+            self.dwarf_status_msg_process = "Wifi Config Time"
             self.dwarf_status_msg_info = "Success"
             print("OK: perform_time.")
         else:
             self.dwarf_status_msg = dwarf_status_msg_old
-            dwarf_status_msg_process = "Wifi Config Time"
+            self.dwarf_status_msg_process = "Wifi Config Time"
             self.dwarf_status_msg_info = "Error"
             print("Error: perform_time.")
 
-        dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
         time.sleep(1)
 
         if (result and step==2):
@@ -960,39 +1026,39 @@ class PhotoPolarAlign(Frame):
 
                 #init Frame : TIMEZONE
                 self.dwarf_status_msg = "Wifi Connected"
-                dwarf_status_msg_process = "Wifi Configuring TimeZone..."
+                self.dwarf_status_msg_process = "Wifi Configuring TimeZone..."
                 self.dwarf_status_msg_info = ""
 
-                dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+                dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
                 result = perform_timezone()
                 nb_test +=1
             if result:
                 self.dwarf_status_msg = "Wifi Connected"
-                dwarf_status_msg_process = "Wifi Config TimeZone"
+                self.dwarf_status_msg_process = "Wifi Config TimeZone"
                 self.dwarf_status_msg_info = "Success"
                 print("OK: perform_timezone.")
             else:
                 self.dwarf_status_msg = dwarf_status_msg_old
-                dwarf_status_msg_process = "Wifi Config TimeZone"
+                self.dwarf_status_msg_process = "Wifi Config TimeZone"
                 self.dwarf_status_msg_info = "Error"
                 print("Error: perform_timezone.")
 
-            dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
             time.sleep(1)
 
         if result:
             self.dwarf_status_msg = "Wifi Connected"
-            dwarf_status_msg_process = ""
+            self.dwarf_status_msg_process = ""
             self.dwarf_status_msg_info = ""
             self.dwarf_status = True
         else:
             self.dwarf_status_msg = dwarf_status_msg_old
-            dwarf_status_msg_process = ""
+            self.dwarf_status_msg_process = ""
             self.dwarf_status_msg_info = ""
             self.dwarf_status = False
 
-        dwarf_bar(self, self.dwarf_status_msg, dwarf_status_msg_process, self.dwarf_status_msg_info)
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
         return result
 
@@ -1002,11 +1068,12 @@ class PhotoPolarAlign(Frame):
         result_TestConnect = False
 
         if not save_bluetooth_config_from_ini_file():
-          print ("Erroro: No Wifi Data have been found, can't connect to wifi") 
+          print ("Error: No Wifi Data have been found, can't connect to wifi") 
           print ("Need to update the config file with Wifi Informations.") 
           self.dwarf_status_msg = "No Wifi Infos Found need to update config.ini first"
           self.dwarf_status = False
           dwarf_bar(self, self.dwarf_status_msg)
+          return
 
         elif current_ip:
           if self.dwarf_status_bluetooth:
@@ -1032,8 +1099,10 @@ class PhotoPolarAlign(Frame):
         print("dwarf_move_polar")
         result = False
 
-        if self.dwarf_status:
-            result = self.dwarf_motor_action(5, "Rotation Motor Resetting...", "Rotation Motor Reset" )
+        if not self.dwarf_status:
+            return result
+
+        result = self.dwarf_motor_action(5, "Rotation Motor Resetting...", "Rotation Motor Reset" )
 
         if result:
             result = self.dwarf_motor_action(6, "Pitch Motor Resetting...", "Pitch Motor Reset" )
@@ -1056,6 +1125,7 @@ class PhotoPolarAlign(Frame):
         return result
 
     def dwarf_motor_action(self, action, text , text_final):
+        print("dwarf_connect")
         if not self.dwarf_status:
             result = False
             return result
@@ -1126,12 +1196,40 @@ class PhotoPolarAlign(Frame):
 
         return result
 
+    def dwarf_open_telephoto(self):
+        print("dwarf_open_telephoto")
+        if not self.dwarf_status:
+            result = False
+            return result
+
+        self.dwarf_status_msg_process = "Open Tele Photo..."
+        self.dwarf_status_msg_info = ""
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+           
+        result = perform_open_camera()
+
+        self.dwarf_status_msg_process = "Open Tele Photo"
+
+        if result == True:
+            self.dwarf_status_msg_info = "Success"
+        else:
+            self.dwarf_status_msg_info = "Error"
+            result = False
+
+        dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+        return result
+
     def dwarf_init_photo(self):
         print("dwarf_init_photo")
         if not self.dwarf_status:
             result = False
+            return result
 
-        if (camera_exposure := read_camera_exposure()):
+        result = self.dwarf_open_telephoto()
+
+        if result and (camera_exposure := read_camera_exposure()):
             print("the exposition is: ", camera_exposure)
             self.dwarf_status_msg_process = "Setting Exposition to " + camera_exposure
             self.dwarf_status_msg_info = ""
@@ -1150,7 +1248,7 @@ class PhotoPolarAlign(Frame):
 
             dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
             time.sleep(1)
-        else:
+        elif result:
             self.dwarf_status_msg_process = "Exposition is not set in config File"
             self.dwarf_status_msg_info = "Error"
 
@@ -1265,9 +1363,8 @@ class PhotoPolarAlign(Frame):
 
         self.dwarf_status_msg_process = "Stop Autofocus"
 
-        if result == 0:
+        if result == True:
             self.dwarf_status_msg_info = "Success"
-            result = True
         else:
             self.dwarf_status_msg_info = "Error"
             result = False
@@ -1280,6 +1377,22 @@ class PhotoPolarAlign(Frame):
         '''
         User wants to quit
         '''
+        # Signal the threads to stop
+        print ("Quit programm")
+
+        # Give threads a moment to respond to the stop signal
+        self.stop_event.set()
+
+        self.force_stop_connect_bluetooth()
+
+        # Join the threads to ensure they have finished
+        if self.monitor_thread :
+            print ("Thread exists")
+
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            print ("Thread is alive")
+            self.monitor_thread.join(timeout = 2)
+
         self.write_config_file()
         self.myparent.destroy()
 
@@ -1465,8 +1578,17 @@ class PhotoPolarAlign(Frame):
         from astropy.time import Time
         from astropy.coordinates import SkyCoord
         from astropy.coordinates import FK5
+        from astropy.coordinates import Angle  # Angles
+        from astropy.coordinates.angles.formats import parse_angle  # Angles
         from astropy.io import fits
         from astropy import wcs
+        import astropy.units as u
+        # import need for building exe
+        import astropy.constants
+        import astropy.config
+        import astropy.wcs.docstrings
+        from astropy.constants import codata2018 as const
+        from astropy.constants import iau2015 as const
         import numpy
         from os.path import splitext
         if self.iimg_fn == self.himg_fn:
@@ -1546,13 +1668,23 @@ class PhotoPolarAlign(Frame):
         '''
         Find RA axis and Annotate the pair of horiz/vertical images
         '''
+ 
         from PIL import Image
         from astropy.time import Time
         import scipy.optimize
         from astropy.coordinates import SkyCoord
         from astropy.coordinates import FK5
+        from astropy.coordinates import Angle  # Angles
+        from astropy.coordinates.angles.formats import parse_angle  # Angles
         from astropy.io import fits
         from astropy import wcs
+        import astropy.units as u
+        # import need for building exe
+        import astropy.constants
+        import astropy.config
+        import astropy.wcs.docstrings
+        from astropy.constants import codata2018 as const
+        from astropy.constants import iau2015 as const
         import numpy
         from os.path import splitext
         #
@@ -1915,6 +2047,10 @@ class PhotoPolarAlign(Frame):
         import configparser
         import numpy
         import os 
+        
+        self.master = master
+        self.master.protocol("WM_DELETE_WINDOW", self.quit_method)
+
         # a F8Ib 2.0 mag star, Alpha Ursa Minoris
         self.polaris = numpy.array([[037.954561, 89.264109]], numpy.float_)
         #
@@ -2049,6 +2185,7 @@ class PhotoPolarAlign(Frame):
 
         self.monitor_thread = None
         self.connect_thread = None
+        self.stop_event = threading.Event()
 
         self.stat_msg = 'Idle'
         Frame.__init__(self, master)
