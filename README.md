@@ -22,7 +22,7 @@ Installation
 
     This library must be installed locally in the root path of this project with the parameter --target .
 
- 4. To generate the exe file from python, I'm using Cx Freeze, install it with:
+ 3. To generate the exe file from python, I'm using Cx Freeze, install it with:
 
        python -m pip install cx_Freeze
      
@@ -36,7 +36,7 @@ Installation
 
     The final executable with all the files will be in the subdir of build directory.
 
- 3. Configure the config.ini with your specifics data:
+ 4. Configure the config.ini with your specifics data:
 
       [CONFIG]
       longitude = 
@@ -53,10 +53,10 @@ Installation
 
    The last three corresponds to your home wifi values
 
- 4. Finally you can start it with:
+ 5. Finally you can start it with:
 
       python .\PPA.py
  
- 5. To resolve your photos live you will need an api key on Nova Astrometry, setup in the settings Menu
+ 6. To resolve your photos live you will need an api key on Nova Astrometry, setup in the settings Menu
 
       https://nova.astrometry.net/api_help
