@@ -4,7 +4,7 @@ import sys
 # Dependencies are automatically detected, but it might need
 # fine tuning.
 
-buildOptions = dict(include_files = [('L:/AstroPhoto/Tools/JCL/PhotoPolarAlign/dwarf_ble_connect/','./dwarf_ble_connect'),('L:/AstroPhoto/Tools/JCL/PhotoPolarAlign/Install/','.')]) 
+buildOptions = dict(include_files = [('dwarf_ble_connect/','./dwarf_ble_connect'),('Install/','.')]) 
 #folder,relative path. Use tuple like in the single file to set a absolute path.
 
  
