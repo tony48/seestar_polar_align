@@ -22,6 +22,20 @@ Installation
 
     This library must be installed locally in the root path of this project with the parameter --target .
 
+ 4. To generate the exe file from python, I'm using Cx Freeze, install it with:
+
+       python -m pip install cx_Freeze
+     
+    Some extra files are need, to generate the exe: image, config files and some files from astropy
+    that are utf8 but Cx Freeze copy them in ASCII so need this
+    Unzip the Install Extra Files for Setup.zip, this create a Install directory.
+
+    Now build the exe with:
+
+      python setup.py build
+
+    The final executable with all the files will be in the subdir of build directory.
+
  3. Configure the config.ini with your specifics data:
 
       [CONFIG]
