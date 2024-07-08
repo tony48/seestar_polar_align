@@ -863,9 +863,10 @@ class PhotoPolarAlign(Frame):
         CONFIG_FILE_TMP = 'config_stop.tmp'
         LOCK_FILE = 'config.lock'
 
-        lock = FileLock(LOCK_FILE)  # Lock file with no timeout (wait indefinitely)
+        lock = FileLock(LOCK_FILE,thread_local=False)  # Lock file with no timeout (wait indefinitely)
 
         with lock:
+            print("Lock ON")
             # Create or clear the temp file
             open(CONFIG_FILE_TMP, 'w').close()
 
@@ -888,6 +889,8 @@ class PhotoPolarAlign(Frame):
                 time.sleep(0.25)
 
             time.sleep(3)
+
+        print("Lock OFF")
 
     def monitor_ip_changes(self):
         previous_ip = None
