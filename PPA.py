@@ -10,7 +10,6 @@ import os
 import shutil
 import base64
 import threading
-import config
 import time
 import importlib
 from filelock import FileLock
@@ -18,6 +17,8 @@ from astropy.config import create_config_file
 from dwarf_python_api.get_live_data_dwarf import getGetLastPhoto, read_config
 from dwarf_python_api.lib.dwarf_utils import motor_action, perform_time, perform_timezone, perform_open_camera, read_camera_exposure, read_camera_gain, read_camera_IR, permform_update_camera_setting, perform_takePhoto, save_bluetooth_config_from_ini_file, perform_start_autofocus, perform_stop_autofocus
 from dwarf_ble_connect.connect_bluetooth import connect_bluetooth
+
+CONFIG_FILE = 'config.py'
 
 try:
     # py3
@@ -859,7 +860,6 @@ class PhotoPolarAlign(Frame):
 
     def force_stop_connect_bluetooth(self):
         # Read the config file and update the UI to Close
-        CONFIG_FILE = 'config.py'
         CONFIG_FILE_TMP = 'config_stop.tmp'
         LOCK_FILE = 'config.lock'
 
@@ -892,6 +892,24 @@ class PhotoPolarAlign(Frame):
 
         print("Lock OFF")
 
+    def get_file_modification_time(self, file_path):
+        return os.path.getmtime(file_path)
+
+    def read_config_values(self, config_file):
+        config_values = {}
+        with open(config_file, 'r') as file:
+            for line in file:
+                # Ignore lines starting with '#' (comments) and empty lines
+                if line.strip() and not line.strip().startswith('#'):
+                    key, value = line.strip().split('=')
+                    config_values[key.strip()] = value.strip().strip('"')  # Remove extra spaces and quotes
+        return config_values
+
+    # Function to dynamically import and reload the config module
+    def get_current_data(self):
+        config_values = self.read_config_values(CONFIG_FILE)
+        return { 'ip' : config_values.get('DWARF_IP', ''), 'ui' : config_values.get('DWARF_UI','')}
+
     def monitor_ip_changes(self):
         previous_ip = None
         previous_ui = None
@@ -900,69 +918,89 @@ class PhotoPolarAlign(Frame):
         resultIP = False
         resultUI = False
         twice_blank = 0
+        # read at runtime
+        data_config = self.get_current_data()
         # in case of wifi error restart the process
-        if config.DWARF_IP != "":
-          previous_ip = config.DWARF_IP
-        if config.DWARF_UI != "":
-          previous_ui = config.DWARF_UI
+        if data_config['ip'] != "":
+          previous_ip = data_config['ip']
+        if data_config['ui'] != "":
+          previous_ui = data_config['ui']
+        current_ip = previous_ip
+        current_ui = previous_ui
         time.sleep(3)
         print(f"Starting monitor_ip_changes")
         check_file = True
+        last_check_time = None
+        LOCK_FILE = 'config.lock'
 
         # not((resultIP and resultUI) or (not resultIP and resultUI))
         # while (not resultUI):
         while (not self.stop_event.is_set() and not resultIP and not resultUI):
 
-            # Reload the config module to ensure the new value is used
-            if check_file:
-                importlib.reload(config)
-            check_file = not check_file
-            current_ip = config.DWARF_IP
-            current_ui = config.DWARF_UI
-            if current_ip != previous_ip:
-                previous_ip = current_ip
-                if current_ip == "" :
-                    print(f"Info: IP address setting has been cleared")
-                else:
-                    print(f"IP address set to: {current_ip}")
-                    self.dwarf_status_msg = "Bluetooth Connected"
-                    self.dwarf_status_msg_process = "Bluetooth Connecting"
-                    self.dwarf_status_msg_info = "Success"
-                    self.dwarf_status = True
-                    self.dwarf_status_bluetooth = True
-                    bluetooth_connect = True
-                    resultIP = True
+            # Reload the config module when changing to ensure the new value is used
+            current_mod_time = self.get_file_modification_time(CONFIG_FILE)
+            check_file = (last_check_time is None or last_check_time!= current_mod_time)
+            if check_file :
+              try:
+                lock = FileLock(LOCK_FILE, thread_local=False, timeout=5)
+                with lock:
+                    print("Lock On")
+                    data_config = self.get_current_data()
+                    last_check_time = current_mod_time
 
-            if current_ui != previous_ui:
-                previous_ui = current_ui
-                if current_ui == "" :
-                    twice_blank += 1
-                    print(f"Info: UI setting cleared :{twice_blank}")
-                    if not closing:
-                        self.dwarf_status_msg = "Not Connected"
-                        self.dwarf_status_msg_process = "Bluetooth Connecting..."
-                        self.dwarf_status_msg_info = "Started"
-                        self.dwarf_status = False
+                    current_ip = data_config['ip']
+                    print(f"current_ip: {current_ip}")
+                    current_ui = data_config['ui']
+                    print(f"current_ui: {current_ui}")
+                    print("Lock Off")
+
+                if current_ip != previous_ip:
+                    previous_ip = current_ip
+                    if current_ip == "" :
+                        print(f"Info: IP address setting has been cleared")
                     else:
-                        resultUI = True
-                elif current_ui == "Exit":
-                    print("Info: closing connect Page.")
-                    closing = True
-                    if not bluetooth_connect:
-                        self.dwarf_status_msg = "Not Connected"
+                        print(f"IP address set to: {current_ip}")
+                        self.dwarf_status_msg = "Bluetooth Connected"
                         self.dwarf_status_msg_process = "Bluetooth Connecting"
-                        self.dwarf_status_msg_info = "Stopped"
-                        self.dwarf_status = False
-                elif current_ui == "Close":
-                    print("Info: Force closing connect Page.")
-                    if not bluetooth_connect:
-                        self.dwarf_status_msg = "Not Connected"
-                        self.dwarf_status_msg_process = "Bluetooth Connecting"
-                        self.dwarf_status_msg_info = "Stopped"
-                        self.dwarf_status = False
-                    resultUI = True
+                        self.dwarf_status_msg_info = "Success"
+                        self.dwarf_status = True
+                        self.dwarf_status_bluetooth = True
+                        bluetooth_connect = True
+                        resultIP = True
 
-            dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+                if current_ui != previous_ui:
+                    previous_ui = current_ui
+                    if current_ui == "" :
+                        twice_blank += 1
+                        print(f"Info: UI setting cleared :{twice_blank}")
+                        if not closing:
+                            self.dwarf_status_msg = "Not Connected"
+                            self.dwarf_status_msg_process = "Bluetooth Connecting..."
+                            self.dwarf_status_msg_info = "Started"
+                            self.dwarf_status = False
+                        else:
+                            resultUI = True
+                    elif current_ui == "Exit":
+                        print("Info: closing connect Page.")
+                        closing = True
+                        if not bluetooth_connect:
+                            self.dwarf_status_msg = "Not Connected"
+                            self.dwarf_status_msg_process = "Bluetooth Connecting"
+                            self.dwarf_status_msg_info = "Stopped"
+                            self.dwarf_status = False
+                    elif current_ui == "Close":
+                        print("Info: Force closing connect Page.")
+                        if not bluetooth_connect:
+                            self.dwarf_status_msg = "Not Connected"
+                            self.dwarf_status_msg_process = "Bluetooth Connecting"
+                            self.dwarf_status_msg_info = "Stopped"
+                            self.dwarf_status = False
+                        resultUI = True
+
+                dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
+              except Timeout:
+                pass 
 
             time.sleep(0.5)  # Adjust sleep interval as needed
 
@@ -1067,7 +1105,11 @@ class PhotoPolarAlign(Frame):
 
     def dwarf_connect(self):
         print("dwarf_connect")
-        current_ip = config.DWARF_IP
+        # read at runtime
+        # read at runtime
+        data_config = self.get_current_data()
+        # in case of wifi error restart the process
+        current_ip = data_config['ip']
         result_TestConnect = False
 
         if not save_bluetooth_config_from_ini_file():
@@ -1081,6 +1123,11 @@ class PhotoPolarAlign(Frame):
         elif current_ip:
           if self.dwarf_status_bluetooth:
             result_TestConnect = self.dwarf_test_connect(1, 2)
+            if not result_TestConnect:
+                result_TestConnect = self.dwarf_test_connect(1, 2)
+            if not result_TestConnect:
+                # restart Bluetooth
+                current_ip = ""
           else:
             #need to configure Timezone also in this case
             result_TestConnect = self.dwarf_test_connect(2, 2)
@@ -1111,10 +1158,10 @@ class PhotoPolarAlign(Frame):
             result = self.dwarf_motor_action(6, "Pitch Motor Resetting...", "Pitch Motor Reset" )
 
         if result:
-            result = self.dwarf_motor_action(2, "Rotation Motor Positionning...", "Rotation Motor Position" )
+            result = self.dwarf_motor_action(2, "Rotation Motor positioning...", "Rotation Motor Position" )
 
         if result:
-            result = self.dwarf_motor_action(3, "Pitch Motor Positionning...", "Pitch Motor Position" )
+            result = self.dwarf_motor_action(3, "Pitch Motor positioning...", "Pitch Motor Position" )
 
         if result:
             self.dwarf_status_msg_process = "Polar Align"
@@ -1158,7 +1205,7 @@ class PhotoPolarAlign(Frame):
             result = False
             return result
 
-        self.dwarf_status_msg_process = "Polar Align Positionning 0°..."
+        self.dwarf_status_msg_process = "Polar Align positioning 0°..."
         self.dwarf_status_msg_info = ""
 
         dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
@@ -1181,7 +1228,7 @@ class PhotoPolarAlign(Frame):
             result = False
             return result
 
-        self.dwarf_status_msg_process = "Polar Align Positionning 90°..."
+        self.dwarf_status_msg_process = "Polar Align positioning 90°..."
         self.dwarf_status_msg_info = ""
 
         dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
@@ -1233,26 +1280,26 @@ class PhotoPolarAlign(Frame):
         result = self.dwarf_open_telephoto()
 
         if result and (camera_exposure := read_camera_exposure()):
-            print("the exposition is: ", camera_exposure)
-            self.dwarf_status_msg_process = "Setting Exposition to " + camera_exposure
+            print("the exposure is: ", camera_exposure)
+            self.dwarf_status_msg_process = "Setting Exposure to " + camera_exposure
             self.dwarf_status_msg_info = ""
 
             dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
             result = permform_update_camera_setting("exposure", camera_exposure)
             if result == 0:
-                self.dwarf_status_msg_process = "Set Exposition to " + camera_exposure
+                self.dwarf_status_msg_process = "Set Exposure to " + camera_exposure
                 self.dwarf_status_msg_info = "Success"
                 result = True
             else:
-                self.dwarf_status_msg_process = "Set Exposition to " + camera_exposure
+                self.dwarf_status_msg_process = "Set Exposure to " + camera_exposure
                 self.dwarf_status_msg_info = "Error"
                 result = False
 
             dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
             time.sleep(1)
         elif result:
-            self.dwarf_status_msg_process = "Exposition is not set in config File"
+            self.dwarf_status_msg_process = "Exposure is not set in config File"
             self.dwarf_status_msg_info = "Error"
 
             dwarf_bar(self, self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
