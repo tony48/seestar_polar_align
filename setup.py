@@ -11,7 +11,7 @@ buildOptions = dict(include_files = [('dwarf_ble_connect/','./dwarf_ble_connect'
 base = 'Win32GUI' if sys.platform=='win32' else None
 setup(
     name = "PhotoPolarAlign",
-    version = "1.1",
+    version = "1.2",
     description = "Photo Polar Align with the Dwarf 2",
     options = dict(build_exe = buildOptions),
     executables = [Executable("PPA.py")]
