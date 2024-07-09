@@ -14,11 +14,12 @@ import time
 import importlib
 from filelock import FileLock
 from astropy.config import create_config_file
+
+# import data for config.py
+from dwarf_python_api.get_config_data import get_config_data, CONFIG_FILE
 from dwarf_python_api.get_live_data_dwarf import getGetLastPhoto, read_config
 from dwarf_python_api.lib.dwarf_utils import motor_action, perform_time, perform_timezone, perform_open_camera, read_camera_exposure, read_camera_gain, read_camera_IR, permform_update_camera_setting, perform_takePhoto, save_bluetooth_config_from_ini_file, perform_start_autofocus, perform_stop_autofocus
 from dwarf_ble_connect.connect_bluetooth import connect_bluetooth
-
-CONFIG_FILE = 'config.py'
 
 try:
     # py3
@@ -895,21 +896,6 @@ class PhotoPolarAlign(Frame):
     def get_file_modification_time(self, file_path):
         return os.path.getmtime(file_path)
 
-    def read_config_values(self, config_file):
-        config_values = {}
-        with open(config_file, 'r') as file:
-            for line in file:
-                # Ignore lines starting with '#' (comments) and empty lines
-                if line.strip() and not line.strip().startswith('#'):
-                    key, value = line.strip().split('=')
-                    config_values[key.strip()] = value.strip().strip('"')  # Remove extra spaces and quotes
-        return config_values
-
-    # Function to dynamically import and reload the config module
-    def get_current_data(self):
-        config_values = self.read_config_values(CONFIG_FILE)
-        return { 'ip' : config_values.get('DWARF_IP', ''), 'ui' : config_values.get('DWARF_UI','')}
-
     def monitor_ip_changes(self):
         previous_ip = None
         previous_ui = None
@@ -919,7 +905,7 @@ class PhotoPolarAlign(Frame):
         resultUI = False
         twice_blank = 0
         # read at runtime
-        data_config = self.get_current_data()
+        data_config = get_config_data(True)
         # in case of wifi error restart the process
         if data_config['ip'] != "":
           previous_ip = data_config['ip']
@@ -945,7 +931,7 @@ class PhotoPolarAlign(Frame):
                 lock = FileLock(LOCK_FILE, thread_local=False, timeout=5)
                 with lock:
                     print("Lock On")
-                    data_config = self.get_current_data()
+                    data_config = get_config_data()
                     last_check_time = current_mod_time
 
                     current_ip = data_config['ip']
@@ -1107,7 +1093,7 @@ class PhotoPolarAlign(Frame):
         print("dwarf_connect")
         # read at runtime
         # read at runtime
-        data_config = self.get_current_data()
+        data_config = get_config_data(True)
         # in case of wifi error restart the process
         current_ip = data_config['ip']
         result_TestConnect = False
