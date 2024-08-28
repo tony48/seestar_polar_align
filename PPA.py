@@ -18,6 +18,8 @@ import tkinter.messagebox
 import tkinter.filedialog
 import optparse
 import requests
+import subprocess
+import threading
 
 import seestar_api
 
@@ -853,9 +855,9 @@ class PhotoPolarAlign(tkinter.Frame):
                                   command=self.settings_open)
         self.filemenu.add_command(label='Exit', command=self.quit_method)
         self.seestarmenu.add_command(label='Connect...',
-                                  command=self.seestar_connect)
+                                  command=threading.Thread(target=self.seestar_connect).start)
         self.seestarmenu.add_command(label='Polar Move RA...',
-                                  command=self.seestar_move_ra_90)
+                                  command=threading.Thread(target=self.seestar_move_ra_90).start)
         self.seestarmenu.add_command(label='Start-up Sequence...',
                                   command=self.seestar_start_up)
         self.autofocusmenu = tkinter.Menu(self.seestarmenu, tearoff=0)
@@ -873,7 +875,7 @@ class PhotoPolarAlign(tkinter.Frame):
         self.wfrop = tkinter.LabelFrame(master, text='Operations')
         self.wfrop.pack(side='top', fill='x')
         #
-        nxt = tkinter.Button(self.wfrop, image=self.vicon, command=lambda : self.get_file('v'))
+        nxt = tkinter.Button(self.wfrop, image=self.vicon, command=lambda : threading.Thread(target=lambda: self.get_file('v')).start())
         nxt.grid(row=0, column=0, sticky='ew', padx=10, pady=4, rowspan=3)
         self.wvfn = nxt
         nxt = tkinter.Button(self.wfrop, text='Nova', command=lambda : self.solve('v','nova'))
@@ -886,7 +888,7 @@ class PhotoPolarAlign(tkinter.Frame):
         nxt.grid(row=2, column=1, sticky='ew', padx=10, pady=4)
         self.wvok = nxt
         #
-        nxt = tkinter.Button(self.wfrop, image=self.hicon, command=lambda : self.get_file('h'))
+        nxt = tkinter.Button(self.wfrop, image=self.hicon, command=lambda : threading.Thread(target=lambda: self.get_file('h')).start())
         nxt.grid(row=3, column=0, sticky='ew', padx=10, pady=4, rowspan=3)
         self.whfn = nxt
         nxt = tkinter.Button(self.wfrop, text='Nova', command=lambda : self.solve('h','nova'))
@@ -904,7 +906,7 @@ class PhotoPolarAlign(tkinter.Frame):
         nxt.grid(row=6, column=0, sticky='ew', padx=10, pady=4, columnspan=2)
         self.wann = nxt
         #
-        nxt = tkinter.Button(self.wfrop, image=self.iicon, command=lambda : self.get_file('i'))
+        nxt = tkinter.Button(self.wfrop, image=self.iicon, command=lambda : threading.Thread(target=lambda: self.get_file('i')).start())
         nxt.grid(row=3, column=3, sticky='ew', padx=10, pady=4, rowspan=3)
         self.wifn = nxt
         nxt = tkinter.Button(self.wfrop, text='Nova', command=lambda : self.solve('i','nova'))
@@ -1181,35 +1183,32 @@ class PhotoPolarAlign(tkinter.Frame):
 
     def limg2wcs(self, filename, wcsfn, hint):
         t_start = time.time()
-        if (('OSTYPE' in os.environ and os.environ['OSTYPE']=='linux') or
-            (os.uname()[0]=='Linux') or
-            ('OSTYPE' in os.environ and os.environ['OSTYPE']=='darwin') or
-            ('OS'     in os.environ and os.environ['OS']    =='Windows_NT')):
+        #if (('OSTYPE' in os.environ and os.environ['OSTYPE']=='linux') or
+        #    (os.uname()[0]=='Linux') or
+        #    ('OSTYPE' in os.environ and os.environ['OSTYPE']=='darwin') or
+        #    ('OS'     in os.environ and os.environ['OS']    =='Windows_NT')):
 
-            # first rough estimate of scale
-            print('___________________________________________________________')
-            # cmd = 'solve-field -b ' + self.local_configfile.get()
-            # if self.havescale and self.restrict_scale.get()==1:
-            #     up_lim = self.scale*1.05
-            #     lo_lim = self.scale*0.95
-            #     cmd = cmd + (' -u app -L %.2f -H %.2f ' % (lo_lim,  up_lim))
-            # else:
-            #     cmd = cmd + ' -u ' + self.local_scale_units.get()
-            #     cmd = cmd + (' -L %.2f' % self.local_scale_low.get())
-            #     cmd = cmd + (' -H %.2f' % self.local_scale_hi.get())
-            # if self.local_downscale.get() != 1:    
-            #     cmd = cmd + (' -z %d' % self.local_downscale.get())
-            # cmd = cmd + ' ' + self.local_xtra.get()
-            # cmd = cmd + ' -O '
-            # cmd = cmd + ' \\"%s\\"'
-            # template = ((self.local_shell.get() % cmd))
-            # # print template
-            # cmd = (template % filename)
-            cmd = f"{self.astap_path.get()} -f {filename} -r 30 -wcs -speed slow"
-            print(cmd)
-            os.system(cmd)
-            self.update_scale(hint)
-            print('___________________________________________________________')
+        print('___________________________________________________________')
+        # cmd = 'solve-field -b ' + self.local_configfile.get()
+        # if self.havescale and self.restrict_scale.get()==1:
+        #     up_lim = self.scale*1.05
+        #     lo_lim = self.scale*0.95
+        #     cmd = cmd + (' -u app -L %.2f -H %.2f ' % (lo_lim,  up_lim))
+        # else:
+        #     cmd = cmd + ' -u ' + self.local_scale_units.get()
+        #     cmd = cmd + (' -L %.2f' % self.local_scale_low.get())
+        #     cmd = cmd + (' -H %.2f' % self.local_scale_hi.get())
+        # if self.local_downscale.get() != 1:    
+        #     cmd = cmd + (' -z %d' % self.local_downscale.get())
+        # cmd = cmd + ' ' + self.local_xtra.get()
+        # cmd = cmd + ' -O '
+        # cmd = cmd + ' \\"%s\\"'
+        # template = ((self.local_shell.get() % cmd))
+        # # print template
+        # cmd = (template % filename)
+        subprocess.run([self.astap_path.get(),"-f",filename,"-r","30","-wcs","-speed","slow"])
+        self.update_scale(hint)
+        print('___________________________________________________________')
         if self.happy_with(wcsfn, filename):
             self.update_solved_labels(hint, 'active')
         else:
