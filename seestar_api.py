@@ -1,7 +1,10 @@
 import requests
 import json
 import time
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, FK5
+from datetime import datetime, timezone
+from astropy.time import Time
+from astropy import units as u
 
 def send_request(action, parameters):
     ip_address = "localhost"
@@ -27,13 +30,17 @@ def is_seestar_connected():
     r = send_request("method_sync",{"method":"get_device_state"})
     return r.ok
 
-def move_ra():
+def move_ra_90(right):
     total_move = 90
     subtotal_move = 0
+    if right:
+        angle = 0
+    else:
+        angle = 180
     while subtotal_move < total_move:
         cur_move = min(45, total_move - subtotal_move)
         move_time = cur_move * 20.0 / 90.0
-        send_request("method_sync", {"method":"scope_speed_move","params":{"speed":1000,"angle":0,"dur_sec":round(move_time)}})
+        send_request("method_sync", {"method":"scope_speed_move","params":{"speed":1000,"angle":angle,"dur_sec":round(move_time)}})
         subtotal_move += cur_move
         time.sleep(move_time + 1)
 
@@ -77,9 +84,9 @@ def goto(target_name, ra, dec, is_j2000=True):
     send_request("goto_target",parameters)
 
 def goto_without_platesolve(target_name, ra, dec, is_j2000=True):
-    # ra and dec are in decimal hour and degree respectively
+    # ra and dec are in hms and dms respectively
     set_target_name(target_name)
-    target_coords = SkyCoord(ra=ra, dec=dec)
+    target_coords = parse_coordinate(is_j2000, ra, dec)
     parameters = {"method":"scope_goto","params":[target_coords.ra.hour,target_coords.dec.degree]}
     send_request("method_sync",parameters)
 
@@ -88,10 +95,13 @@ def wait_for_goto():
     while is_goto():
         time.sleep(2)
 
-def wait_for_goto_ra_dec(target_ra, target_dec):
+def wait_for_goto_ra_dec(target_ra, target_dec, is_j2000=True):
     print("Waiting for goto ra and dec")
+    target_coords = parse_coordinate(is_j2000, target_ra, target_dec)
+    ra = target_coords.ra.hour
+    dec = target_coords.dec.degree
     coords = get_equ_coords()
-    while (coords["ra"] - target_ra) ** 2 + (coords["dec"] - target_dec) ** 2 > 0.01:
+    while (coords["ra"] - ra) ** 2 + (coords["dec"] - dec) ** 2 > 0.01:
         time.sleep(2)
         coords = get_equ_coords()
     time.sleep(1)
@@ -122,3 +132,17 @@ def do_darks():
     else:
         print("Darks have already been taken")
     stop_stack()
+
+def parse_coordinate(is_j2000, in_ra, in_dec):
+    _fk5 = FK5(equinox=Time(Time(datetime.now(timezone.utc), scale='utc').jd, format="jd", scale="utc"))
+    if is_j2000:
+        coord_frame = 'icrs'
+    else:
+        coord_frame = _fk5
+    if isinstance(in_ra, str):
+        result = SkyCoord(ra=in_ra, dec=in_dec, unit=(u.hourangle, u.deg), frame=coord_frame)
+    else:
+        result = SkyCoord(ra=in_ra*u.hour, dec=in_dec*u.deg, frame=coord_frame)
+    if is_j2000:
+        result = result.transform_to(_fk5)
+    return result
