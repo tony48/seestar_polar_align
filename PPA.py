@@ -289,7 +289,7 @@ class PhotoPolarAlign(tkinter.Frame):
         nxt = tkinter.Label(frm, text='ASTAP Path')
         nxt.grid(row=0, column=0, pady=4, sticky='w')
         nxt = tkinter.Entry(frm, textvariable=self.astap_path)
-        nxt.grid(row=0, column=1, pady=4, sticky='w', columnspan=2)
+        nxt.grid(row=0, column=1, pady=4)
 
         
         tkinter.Button(win, text='OK', command=self.settings_destroy).pack(pady=4)
@@ -741,7 +741,7 @@ class PhotoPolarAlign(tkinter.Frame):
         # delete images from seestar memory
         seestar_api.delete_image("Seestar_polar_align-sub")
         seestar_api.delete_image("Seestar_polar_align")
-        return img_name
+        return "Images/"+img_name
 
     def seestar_take_photo(self):
         print("seestar_take_photo")
@@ -751,7 +751,7 @@ class PhotoPolarAlign(tkinter.Frame):
         setting = seestar_api.get_setting()
         exposure_stack = setting["Value"]["result"]["exp_ms"]["stack_l"]
         horizontal_calibration_enable = setting["Value"]["result"]["auto_3ppa_calib"]
-        seestar_api.set_exposure(2000)
+        seestar_api.set_exposure(5000)
         seestar_api.set_horizontal_calibration(False)
         seestar_api.set_lp_filter(False)
         seestar_api.set_target_name("Seestar_polar_align")
@@ -775,7 +775,7 @@ class PhotoPolarAlign(tkinter.Frame):
             self.dwarf_status_msg_info = "In Progress"
             self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
             time.sleep(3)
-        time.sleep(4)
+        time.sleep(8)
         seestar_api.stop_stack()
         time.sleep(1)
         seestar_api.set_exposure(exposure_stack)
@@ -814,12 +814,12 @@ class PhotoPolarAlign(tkinter.Frame):
         self.dwarf_status_msg_info = "Success"
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
-    def seestar_move_ra_90(self):
+    def seestar_move_ra_90(self, right):
         print("seestar_move_ra_90")
         self.dwarf_status_msg_process = "Moving RA Axis by 90 degrees..."
         self.dwarf_status_msg_info = ""
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
-        seestar_api.move_ra()
+        seestar_api.move_ra_90(right)
         self.dwarf_status_msg_process = "RA Axis moved"
         self.dwarf_status_msg_info = "Success"
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
@@ -855,16 +855,18 @@ class PhotoPolarAlign(tkinter.Frame):
                                   command=self.settings_open)
         self.filemenu.add_command(label='Exit', command=self.quit_method)
         self.seestarmenu.add_command(label='Connect...',
-                                  command=threading.Thread(target=self.seestar_connect).start)
-        self.seestarmenu.add_command(label='Polar Move RA...',
-                                  command=threading.Thread(target=self.seestar_move_ra_90).start)
+                                  command=lambda:threading.Thread(target=self.seestar_connect).start())
+        self.seestarmenu.add_command(label='Move RA 90° Right...',
+                                  command=lambda:threading.Thread(target=lambda:self.seestar_move_ra_90(True)).start())
+        self.seestarmenu.add_checkbutton(label='Move RA 90° Left...',
+                                         command=lambda:threading.Thread(target=lambda:self.seestar_move_ra_90(False)).start())
         self.seestarmenu.add_command(label='Start-up Sequence...',
                                   command=self.seestar_start_up)
         self.autofocusmenu = tkinter.Menu(self.seestarmenu, tearoff=0)
         self.seestarmenu.add_cascade(label='Autofocus', menu=self.autofocusmenu)
 
         self.autofocusmenu.add_command(label='Autofocus...',
-                                  command=lambda:self.seestar_autofocus)
+                                  command=self.seestar_autofocus)
         self.autofocusmenu.add_command(label='Stop Autofocus...',
                                   command=self.seestar_stop_autofocus)
 
@@ -1176,7 +1178,7 @@ class PhotoPolarAlign(tkinter.Frame):
             # self.local_xtra.set('')
 
             self.astap_path.set("")
-        if not self.apikey.get() or self.apikey.get()=='' or not self.astap_path or self.astap_path.get()=="":
+        if (not self.apikey.get() or self.apikey.get()=='') and (not self.astap_path or self.astap_path.get()==""):
             self.settings_open()
         self.pack()
         #
@@ -1206,13 +1208,18 @@ class PhotoPolarAlign(tkinter.Frame):
         # template = ((self.local_shell.get() % cmd))
         # # print template
         # cmd = (template % filename)
-        subprocess.run([self.astap_path.get(),"-f",filename,"-r","30","-wcs","-speed","slow"])
-        self.update_scale(hint)
+        subprocess.run([self.astap_path.get(),"-f",filename,"-r","30","-wcs","-speed","slow","-ra","0","-spd","180"])
         print('___________________________________________________________')
         if self.happy_with(wcsfn, filename):
             self.update_solved_labels(hint, 'active')
         else:
-            self.update_solved_labels(hint, 'disabled')
+            # try south hemisphere
+            subprocess.run([self.astap_path.get(),"-f",filename,"-r","30","-wcs","-speed","slow","-ra","0","-spd","0"])
+            if self.happy_with(wcsfn, filename):
+                self.update_solved_labels(hint, 'active')
+            else:
+                self.update_solved_labels(hint, 'disabled')
+        self.update_scale(hint)
         self.stat_bar('Idle')
         print('local solve time ' + str(time.time()-t_start))
         print('___________________________________________________________')            
