@@ -40,9 +40,12 @@ def move_ra_90(right):
     while subtotal_move < total_move:
         cur_move = min(45, total_move - subtotal_move)
         move_time = cur_move * 20.0 / 90.0
-        send_request("method_sync", {"method":"scope_speed_move","params":{"speed":1000,"angle":angle,"dur_sec":round(move_time)}})
+        move_joystick(1000, angle, round(move_time))
         subtotal_move += cur_move
         time.sleep(move_time + 1)
+
+def move_joystick(speed, angle, duration):
+    send_request("method_sync", {"method":"scope_speed_move","params":{"speed":speed,"angle":angle,"dur_sec":duration}})
 
 def set_horizontal_calibration(enable):
     send_request("method_sync",{"method":"set_setting", "params":{"auto_3ppa_calib": enable}})
