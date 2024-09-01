@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Created on Sun Oct 12 22:40:05 2014
 
@@ -1217,13 +1217,13 @@ class PhotoPolarAlign(tkinter.Frame):
         # template = ((self.local_shell.get() % cmd))
         # # print template
         # cmd = (template % filename)
-        subprocess.run([self.astap_path.get(),"-f",filename,"-r","30","-wcs","-speed","slow","-ra","0","-spd","180"])
+        subprocess.run([self.astap_path.get(),"-f",filename,"-r","30","-wcs","-speed","slow","-ra","0","-spd","180","-check","y"])
         print('___________________________________________________________')
         if self.happy_with(wcsfn, filename):
             self.update_solved_labels(hint, 'active')
         else:
             # try south hemisphere
-            subprocess.run([self.astap_path.get(),"-f",filename,"-r","30","-wcs","-speed","slow","-ra","0","-spd","0"])
+            subprocess.run([self.astap_path.get(),"-f",filename,"-r","30","-wcs","-speed","slow","-ra","0","-spd","0","-check","y"])
             if self.happy_with(wcsfn, filename):
                 self.update_solved_labels(hint, 'active')
             else:
