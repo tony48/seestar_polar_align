@@ -760,7 +760,7 @@ class PhotoPolarAlign(tkinter.Frame):
         setting = seestar_api.get_setting()
         exposure_stack = setting["Value"]["result"]["exp_ms"]["stack_l"]
         horizontal_calibration_enable = setting["Value"]["result"]["auto_3ppa_calib"]
-        seestar_api.set_exposure(5000)
+        seestar_api.set_exposure(2000)
         seestar_api.set_horizontal_calibration(False)
         seestar_api.set_lp_filter(False)
         seestar_api.set_target_name("Seestar_polar_align")
@@ -784,7 +784,7 @@ class PhotoPolarAlign(tkinter.Frame):
             self.dwarf_status_msg_info = "In Progress"
             self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
             time.sleep(3)
-        time.sleep(8)
+        time.sleep(5)
         seestar_api.stop_stack()
         time.sleep(1)
         seestar_api.set_exposure(exposure_stack)
