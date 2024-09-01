@@ -149,3 +149,7 @@ def parse_coordinate(is_j2000, in_ra, in_dec):
     if is_j2000:
         result = result.transform_to(_fk5)
     return result
+
+def get_albums():
+    r = send_request("method_sync",{"method":"get_albums","params":""})
+    return r.json()
