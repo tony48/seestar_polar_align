@@ -1,6 +1,7 @@
 import requests
 import json
 import time
+import tzlocal
 from astropy.coordinates import SkyCoord, FK5
 from datetime import datetime, timezone
 from astropy.time import Time
@@ -78,8 +79,7 @@ def get_last_image_url():
     return r.json()["Value"]["url"]
 
 def delete_image(path):
-    # don't know why there is a \ in the path
-    send_request("method_sync",{"method":"delete_image", "params":{"name":[f"MyWorks\\/{path}"]}})
+    send_request("method_sync",{"method":"delete_image", "params":{"name":[f"MyWorks/{path}"]}})
 
 def goto(target_name, ra, dec, is_j2000=True):
     # ra and dec are in hms and dms respectively
@@ -153,3 +153,48 @@ def parse_coordinate(is_j2000, in_ra, in_dec):
 def get_albums():
     r = send_request("method_sync",{"method":"get_albums","params":""})
     return r.json()
+
+def get_stack_setting():
+    r = send_request("method_sync",{"method":"get_stack_setting"})
+    return r.json()
+
+def set_stack_setting(save_discrete_frame, save_discrete_ok_frame, light_duration_min=-1):
+    r = send_request("method_sync",{"method":"set_stack_setting","params":{"save_discrete_frame":save_discrete_frame,"save_discrete_ok_frame":save_discrete_ok_frame,"light_duration_min":light_duration_min}})
+
+def init(lat, lon, lang):
+    send_request("method_sync",{"method":"pi_is_verified"})
+    tz_name = tzlocal.get_localzone_name()
+    tz = tzlocal.get_localzone()
+    now = datetime.now(tz)
+    date_json = {}
+    date_json["year"] = now.year
+    date_json["mon"] = now.month
+    date_json["day"] = now.day
+    date_json["hour"] = now.hour
+    date_json["min"] = now.minute
+    date_json["sec"] = now.second
+    date_json["time_zone"] = tz_name
+    date_data = {}
+    date_data['method'] = 'pi_set_time'
+    date_data['params'] = [date_json]
+    send_request("method_sync",date_data)
+
+    loc_data = {}
+    loc_param = {}
+    loc_param['lon'] = lon
+    loc_param['lat'] = lat
+    loc_param['force'] = False
+    loc_data['method'] = 'set_user_location'
+    loc_data['params'] = loc_param
+    send_request("method_sync",loc_data)
+
+    lang_data = {}
+    lang_data['method'] = 'set_setting'
+    lang_data['params'] = {'lang': lang}
+    send_request("method_sync",lang_data)
+
+def park():
+    send_request("method_sync",{"method":"scope_park"})
+
+def move_to_horizon():
+    send_request("method_sync",{"method":"scope_move_to_horizon"})
