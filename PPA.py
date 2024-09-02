@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Created on Sun Oct 12 22:40:05 2014
 
@@ -535,7 +535,7 @@ class PhotoPolarAlign(tkinter.Frame):
             self.stat_bar('Wrong parity...')
             return
         self.update_display(cpcrdi, scalei)
-        cpcircle(cpcrdi, imi, scalei)
+        """ cpcircle(cpcrdi, imi, scalei)
         cross([axis], imi, 'Red')
         if self.hemi == 'N':
             poli = wcsi.wcs_world2pix(self.polaris, 1)
@@ -566,7 +566,7 @@ class PhotoPolarAlign(tkinter.Frame):
         croppedi.load()
         crop_fn = os.path.splitext(self.iimg_fn)[0] + '_cropi.ppm'
         croppedi.save(crop_fn, 'PPM')
-        self.create_imgwin(crop_fn, self.iimg_fn)
+        self.create_imgwin(crop_fn, self.iimg_fn) """
         self.stat_bar( 'Idle')
 
     def annotate(self):
@@ -643,7 +643,7 @@ class PhotoPolarAlign(tkinter.Frame):
         self.axis = axis
         self.update_display(cpcrdh, scaleh)
         #
-        self.stat_bar( 'Annotating...')
+        """ self.stat_bar( 'Annotating...')
         cpcircle(cpcrdh, imh, scaleh)
         cross([axis], imh, 'Red')
         # add reference stars
@@ -676,7 +676,7 @@ class PhotoPolarAlign(tkinter.Frame):
         croppedh.load()
         crop_fn = os.path.splitext(self.himg_fn)[0] + '_croph.ppm'
         croppedh.save(crop_fn, 'PPM')
-        self.create_imgwin(crop_fn, self.himg_fn)
+        self.create_imgwin(crop_fn, self.himg_fn) """
         self.stat_bar( 'Idle')
 
     def create_imgwin(self, img_fn, title):
