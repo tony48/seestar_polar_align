@@ -166,9 +166,9 @@ def cpcircle(centre, img, scl):
     cen = centre[0]
     ax1 = cen[0]
     ay1 = cen[1]
-    number = [5, 10, 20, 40]
-    for i in number:
-        rad = (i*60)/scl
+    radii = [5, 10, 20, 40] # arcminutes
+    for i in radii:
+        rad = (i*60)/scl # radius in pixels
         draw.ellipse((ax1 - rad, ay1 - rad, ax1 + rad, ay1 + rad),
                      fill=None, outline='Green')
         draw.text((ax1 + (rad*26)/36, ay1 + (rad*26/36)), str(i),
