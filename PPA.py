@@ -679,6 +679,18 @@ class PhotoPolarAlign(tkinter.Frame):
         self.create_imgwin(crop_fn, self.himg_fn) """
         self.stat_bar( 'Idle')
 
+    def find_current_alignment(self, wcsv, wcsh, widthh, heighth):
+        def displacement(coords):
+            '''
+            the movement of a sky object in the two images
+            '''
+            pixcrd1 = numpy.array(coords)
+            skycrd = wcsv.pixel_to_world(pixcrd1[0], pixcrd1[1])
+            pixcrd2 = wcsh.world_to_pixel(skycrd)
+            return pixcrd2 - pixcrd1
+        axis = scipy.optimize.broyden1(displacement, [widthh/2, heighth/2])
+        return wcsh.pixel_to_world(axis[0], axis[1])
+
     def create_imgwin(self, img_fn, title):
         '''
         creates a window to display an image
