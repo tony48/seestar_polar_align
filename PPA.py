@@ -873,11 +873,11 @@ class PhotoPolarAlign(tkinter.Frame):
             self.dwarf_status = False
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
-    def seestar_raise_arm(self):
+    def seestar_raise_arm(self, total_move):
+        print("seestar_raise_arm")
         self.dwarf_status_msg_process = "Raising Arm..."
         self.dwarf_status_msg_info = ""
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
-        total_move = 175
         subtotal_move = 0
         while subtotal_move < total_move:
             cur_move = min(35, total_move - subtotal_move)
@@ -887,6 +887,16 @@ class PhotoPolarAlign(tkinter.Frame):
             subtotal_move += cur_move
             time.sleep(move_time + 1)
         self.dwarf_status_msg_process = "Arm raised"
+        self.dwarf_status_msg_info = "Success"
+        self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+    
+    def seestar_park(self):
+        print("seestar_park")
+        self.dwarf_status_msg_process = "Going to park position..."
+        self.dwarf_status_msg_info = ""
+        self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+        seestar_api.park()
+        self.dwarf_status_msg_process = "Go to park position"
         self.dwarf_status_msg_info = "Success"
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
@@ -909,12 +919,19 @@ class PhotoPolarAlign(tkinter.Frame):
         self.filemenu.add_command(label='Exit', command=self.quit_method)
         self.seestarmenu.add_command(label='Connect...',
                                   command=lambda:threading.Thread(target=self.seestar_connect).start())
-        self.seestarmenu.add_command(label='Move RA 90° Right...',
+        
+        self.movemenu = tkinter.Menu(self.seestarmenu, tearoff=0)
+        self.seestarmenu.add_cascade(label="Move", menu=self.movemenu)
+
+        self.movemenu.add_command(label="Raise Arm From Park...",
+                                  command=lambda:threading.Thread(target=lambda:self.seestar_raise_arm(175)).start())
+        self.movemenu.add_command(label='Move RA 90° Right...',
                                   command=lambda:threading.Thread(target=lambda:self.seestar_move_ra_90(True)).start())
-        self.seestarmenu.add_checkbutton(label='Move RA 90° Left...',
-                                         command=lambda:threading.Thread(target=lambda:self.seestar_move_ra_90(False)).start())
-        self.seestarmenu.add_command(label="Raise Arm...",
-                                  command=lambda:threading.Thread(target=self.seestar_raise_arm).start())
+        self.movemenu.add_command(label='Move RA 90° Left...',
+                                  command=lambda:threading.Thread(target=lambda:self.seestar_move_ra_90(False)).start())
+        self.movemenu.add_command(label="Park...",
+                                  command=self.seestar_park)
+        
         self.autofocusmenu = tkinter.Menu(self.seestarmenu, tearoff=0)
         self.seestarmenu.add_cascade(label='Autofocus', menu=self.autofocusmenu)
 
