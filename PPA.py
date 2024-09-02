@@ -751,7 +751,7 @@ class PhotoPolarAlign(tkinter.Frame):
         with open("Images/"+img_name, "wb") as handler:
             handler.write(img_data)
         # delete images from seestar memory
-        albums = seestar_api.get_albums()["result"]["list"]
+        albums = seestar_api.get_albums()["Value"]["result"]["list"]
         deep_sky_album = next((i for i in albums if i["group_name"] == "DeepSky"), None)
         if deep_sky_album != None:
             polar_align_album = next((i for i in deep_sky_album["files"] if i["name"] == "Seestar_polar_align"), None)
