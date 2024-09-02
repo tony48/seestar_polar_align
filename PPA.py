@@ -232,6 +232,10 @@ class PhotoPolarAlign(tkinter.Frame):
         # the local solve options
         if not self.config.has_section('local'):
             self.config.add_section('local')
+
+        # seestar options
+        if not self.config.has_section("seestar"):
+            self.config.add_section("seestar")
         # self.config.set('local','shell',
         #                 str(self.local_shell.get()))
         # self.config.set('local','downscale',
@@ -249,6 +253,12 @@ class PhotoPolarAlign(tkinter.Frame):
         #
         self.config.set("local","astap_path",
                         str(self.astap_path.get()))
+        self.config.set("seestar","lang",
+                        str(self.seestar_lang.get()))
+        self.config.set("seestar","lat",
+                        str(self.seestar_lat.get()))
+        self.config.set("seestar","lon",
+                        str(self.seestar_lon.get()))
         with open(self.cfgfn, 'w') as cfgfile:
             self.config.write(cfgfile)
         cfgfile.close()
@@ -291,6 +301,23 @@ class PhotoPolarAlign(tkinter.Frame):
         nxt = tkinter.Entry(frm, textvariable=self.astap_path)
         nxt.grid(row=0, column=1, pady=4)
 
+        frm = tkinter.LabelFrame(win, borderwidth=2, relief='ridge', text='Seestar Configuration')
+        frm.pack(side='top', ipadx=20, padx=20, fill='x')
+
+        nxt = tkinter.Label(frm, text='Seestar Language')
+        nxt.grid(row=0, column=0, pady=4, sticky='w')
+        nxt = tkinter.Entry(frm, textvariable=self.seestar_lang)
+        nxt.grid(row=0, column=1, pady=4)
+
+        nxt = tkinter.Label(frm, text='Seestar Latitude')
+        nxt.grid(row=1, column=0, pady=4, sticky='w')
+        nxt = tkinter.Entry(frm, textvariable=self.seestar_lat)
+        nxt.grid(row=1, column=1, pady=4)
+
+        nxt = tkinter.Label(frm, text='Seestar Longitude')
+        nxt.grid(row=2, column=0, pady=4, sticky='w')
+        nxt = tkinter.Entry(frm, textvariable=self.seestar_lon)
+        nxt.grid(row=2, column=1, pady=4)
         
         tkinter.Button(win, text='OK', command=self.settings_destroy).pack(pady=4)
 
@@ -836,13 +863,11 @@ class PhotoPolarAlign(tkinter.Frame):
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
     def seestar_connect(self):
+        print("seestar_connect")
         try:
-            if seestar_api.is_seestar_connected():
-                self.dwarf_status_msg = "Connected"
-                self.dwarf_status = True
-            else:
-                self.dwarf_status_msg = "Not connected"
-                self.dwarf_status = False
+            seestar_api.init(self.seestar_lat.get(), self.seestar_lon.get(), self.seestar_lang.get())
+            self.dwarf_status_msg = "Connected"
+            self.dwarf_status = True
         except requests.exceptions.ConnectionError:
             self.dwarf_status_msg = "Not connected"
             self.dwarf_status = False
@@ -1061,6 +1086,9 @@ class PhotoPolarAlign(tkinter.Frame):
         self.cfgfn = 'PPA.ini'
 
         self.astap_path = tkinter.StringVar()
+        self.seestar_lang = tkinter.StringVar()
+        self.seestar_lat = tkinter.DoubleVar()
+        self.seestar_lon = tkinter.DoubleVar()
 
         # self.local_shell = tkinter.StringVar()
         # self.local_downscale = tkinter.IntVar()
@@ -1187,6 +1215,9 @@ class PhotoPolarAlign(tkinter.Frame):
             # self.local_xtra.set(self.config.get('local','xtra'))
 
             self.astap_path.set(self.config.get("local","astap_path"))
+            self.seestar_lang.set(self.config.get("seestar", "lang"))
+            self.seestar_lat.set(self.config.get("seestar","lat"))
+            self.seestar_lon.set(self.config.get("seestar","lon"))
 
             #exit_status = os.system(f"{str(self.astap_path.get())} -f > /dev/null")
             #if exit_status != 0:
@@ -1206,7 +1237,11 @@ class PhotoPolarAlign(tkinter.Frame):
             # self.local_xtra.set('')
 
             self.astap_path.set("")
-        if (not self.apikey.get() or self.apikey.get()=='') and (not self.astap_path or self.astap_path.get()==""):
+            self.seestar_lang.set("en")
+            self.seestar_lat.set(None)
+            self.seestar_lon.set(None)
+
+        if (not self.apikey.get() or self.apikey.get()=='') and (not self.astap_path or self.astap_path.get()=="") or self.seestar_lon == None or self.seestar_lat == None:
             self.settings_open()
         self.pack()
         #
