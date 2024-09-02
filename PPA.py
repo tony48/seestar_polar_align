@@ -805,16 +805,6 @@ class PhotoPolarAlign(tkinter.Frame):
         self.dwarf_status_msg_info = "Success"
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
-    def seestar_start_up(self):
-        print("seestar_start_up")
-        self.dwarf_status_msg_process = "Starting Seestar Start-up Sequence..."
-        self.dwarf_status_msg_info = ""
-        self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
-        seestar_api.start_up_sequence()
-        self.dwarf_status_msg_process = "Seestar Start-up Sequence"
-        self.dwarf_status_msg_info = "Success"
-        self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
-
     def seestar_autofocus(self):
         print("seestar_autofocus")
         self.dwarf_status_msg_process = "Starting Seestar Autofocus..."
@@ -858,6 +848,23 @@ class PhotoPolarAlign(tkinter.Frame):
             self.dwarf_status = False
         self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
 
+    def seestar_raise_arm(self):
+        self.dwarf_status_msg_process = "Raising Arm..."
+        self.dwarf_status_msg_info = ""
+        self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+        total_move = 175
+        subtotal_move = 0
+        while subtotal_move < total_move:
+            cur_move = min(35, total_move - subtotal_move)
+            # speed 1000 for 20 seconds is 90 degrees (apparently)
+            move_time = cur_move * 10.0 / 38.45258518931774
+            seestar_api.move_joystick(1000, 90, round(move_time))
+            subtotal_move += cur_move
+            time.sleep(move_time + 1)
+        self.dwarf_status_msg_process = "Arm raised"
+        self.dwarf_status_msg_info = "Success"
+        self.dwarf_bar(self.dwarf_status_msg, self.dwarf_status_msg_process, self.dwarf_status_msg_info)
+
     def create_widgets(self, master=None):
         '''
         creates the main window components
@@ -881,8 +888,8 @@ class PhotoPolarAlign(tkinter.Frame):
                                   command=lambda:threading.Thread(target=lambda:self.seestar_move_ra_90(True)).start())
         self.seestarmenu.add_checkbutton(label='Move RA 90° Left...',
                                          command=lambda:threading.Thread(target=lambda:self.seestar_move_ra_90(False)).start())
-        self.seestarmenu.add_command(label='Start-up Sequence...',
-                                  command=self.seestar_start_up)
+        self.seestarmenu.add_command(label="Raise Arm...",
+                                  command=lambda:threading.Thread(target=self.seestar_raise_arm).start())
         self.autofocusmenu = tkinter.Menu(self.seestarmenu, tearoff=0)
         self.seestarmenu.add_cascade(label='Autofocus', menu=self.autofocusmenu)
 
